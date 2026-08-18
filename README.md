@@ -77,8 +77,6 @@ mix.master
 │   └── mcp/
 ├── deploy/
 │   └── kubernetes/
-├── tests/
-│   └── e2e/
 └── scripts/
 ```
 
