@@ -8,13 +8,13 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
 
 本仓库负责在 VerdantFlare Station 上运行的以下服务：
 
-| 服务 | 职责 |
-| --- | --- |
-| `music-mcp-server` | 在 Station MCP 边界暴露音乐制作工具，校验请求并向内部服务提交任务。 |
-| `music-generator-api` | 提供稳定的内部候选歌曲生成 API，并隔离具体的模型运行时。 |
-| `uvr5-separator-api` | 提供音轨分离、去混响、模型加载和任务状态 API。 |
-| `rvc-engine-api` | 提供人声模型训练、模型管理和音色转换 API。 |
-| `audio-mixer-api` | 提供混音、母带处理、响度标准化和交付格式编码 API。 |
+| 服务                  | 职责                                                                |
+| --------------------- | ------------------------------------------------------------------- |
+| `music-mcp-server`    | 在 Station MCP 边界暴露音乐制作工具，校验请求并向内部服务提交任务。 |
+| `music-generator-api` | 提供稳定的内部候选歌曲生成 API，并隔离具体的模型运行时。            |
+| `uvr5-separator-api`  | 提供音轨分离、去混响、模型加载和任务状态 API。                      |
+| `rvc-engine-api`      | 提供人声模型训练、模型管理和音色转换 API。                          |
+| `audio-mixer-api`     | 提供混音、母带处理、响度标准化和交付格式编码 API。                  |
 
 本仓库不负责 Agent Skill 和 Studio 用户界面：
 
