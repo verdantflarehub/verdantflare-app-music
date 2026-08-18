@@ -61,10 +61,10 @@ mix.master
 
 ```text
 .
+├── .github/
+│   └── workflows/
 ├── README.md
 ├── AGENTS.md
-├── Makefile
-├── compose.yaml
 ├── .env.example
 ├── services/
 │   ├── music-mcp-server/
@@ -76,8 +76,7 @@ mix.master
 │   ├── http/
 │   └── mcp/
 ├── deploy/
-│   ├── compose/
-│   └── station/
+│   └── kubernetes/
 ├── tests/
 │   └── e2e/
 └── scripts/
@@ -93,7 +92,9 @@ services/<service>/
 └── tests/
 ```
 
-服务依赖、容器构建和单元测试保留在各自服务目录内。跨服务 HTTP 和 MCP Schema 统一放在 `contracts/`。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
+服务依赖、镜像构建文件和单元测试保留在各自服务目录内。跨服务 HTTP 和 MCP Schema 统一放在 `contracts/`。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
+
+`.github/workflows/` 负责测试、构建五个版本化服务镜像、推送镜像仓库，以及触发 Kubernetes 滚动发布。`deploy/kubernetes/` 保存流水线引用的 Kubernetes 部署资源。
 
 UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用锁定版本的成熟上游实现作为算法依赖，但上游公开的 WebUI、CLI 或容器接口不是 VerdantFlare 的服务契约。
 
@@ -117,6 +118,7 @@ Station 在运行时提供项目范围存储和模型存储。部署可以挂载
 
 - 在 `dev` 分支开发，`main` 作为稳定分支。
 - 为全部五个服务构建并发布由 VerdantFlare 维护的镜像。
+- 测试、镜像构建和 Kubernetes 发布统一通过 CI/CD 流水线执行。
 - 锁定上游源码、Python 依赖、基础镜像和模型 Revision。
 - 保留上游许可证和署名声明。
 - 禁止将 Secret、凭据、媒体文件、模型权重和运行数据提交到 Git。
