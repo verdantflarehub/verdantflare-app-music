@@ -1,62 +1,49 @@
 # VerdantFlare App Music
 
-VerdantFlare App Music is the Station-side application suite for AI-assisted
-music production. It exposes versioned MCP tools and internal HTTP APIs for
-music generation, stem separation, voice-model training, voice conversion,
-mixing, and mastering.
+VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作应用套件。它通过版本化的 MCP 工具和内部 HTTP API，提供音乐生成、音轨分离、人声模型训练、音色转换、混音与母带处理能力。
 
-The repository is in its initial design and scaffolding stage. It does not yet
-provide a runnable production stack.
+本仓库目前处于初始设计和工程脚手架阶段，尚未提供可运行的生产环境服务栈。
 
-## Responsibilities
+## 项目职责
 
-This repository owns the services that run on VerdantFlare Station:
+本仓库负责在 VerdantFlare Station 上运行的以下服务：
 
-| Service | Responsibility |
+| 服务 | 职责 |
 | --- | --- |
-| `music-mcp-server` | Expose music tools to the Station MCP boundary, validate requests, and submit work to the internal services. |
-| `music-generator-api` | Provide a stable internal API for candidate song generation while isolating the selected model runtime. |
-| `uvr5-separator-api` | Provide an API for stem separation, dereverberation, model loading, and job status. |
-| `rvc-engine-api` | Provide APIs for voice-model training, model management, and voice conversion. |
-| `audio-mixer-api` | Provide APIs for mixing, mastering, loudness normalization, and delivery encoding. |
+| `music-mcp-server` | 在 Station MCP 边界暴露音乐制作工具，校验请求并向内部服务提交任务。 |
+| `music-generator-api` | 提供稳定的内部候选歌曲生成 API，并隔离具体的模型运行时。 |
+| `uvr5-separator-api` | 提供音轨分离、去混响、模型加载和任务状态 API。 |
+| `rvc-engine-api` | 提供人声模型训练、模型管理和音色转换 API。 |
+| `audio-mixer-api` | 提供混音、母带处理、响度标准化和交付格式编码 API。 |
 
-The repository does not own the Agent Skill or Studio user interface:
+本仓库不负责 Agent Skill 和 Studio 用户界面：
 
-- The `verdantflare-music` Skill belongs in
-  `verdantflare-skills/skills/verdantflare-music/`. It converts user intent
-  into a production plan, fills parameters, applies review checkpoints, and
-  selects MCP tools.
-- VerdantFlare Studio presents the plan, confirmations, tasks, assets, reviews,
-  and delivery state.
-- Station Runtime owns GPU scheduling, task attempts, resource leases,
-  project-scoped storage, and artifact registration.
+- `verdantflare-music` Skill 位于 `verdantflare-skills/skills/verdantflare-music/`，负责将用户意图转换为制作计划、补全参数、应用审核点并选择 MCP 工具。
+- VerdantFlare Studio 负责展示计划、操作确认、任务、资产、审核和交付状态。
+- Station Runtime 负责 GPU 调度、任务 Attempt、资源租约、项目范围存储和 Artifact 登记。
 
-The execution boundary is:
+完整执行边界如下：
 
 ```text
-User
+用户
   -> verdantflare-music Skill
   -> Studio MCP Bridge
   -> music-mcp-server
-  -> generator / UVR5 / RVC / mixer APIs
-  -> Station tasks and project assets
+  -> generator / UVR5 / RVC / mixer API
+  -> Station 任务和项目资产
 ```
 
-The Skill plans the work; the MCP server exposes controlled tools; the API
-services perform the work. Workflow orchestration must not be duplicated in
-the Skill and MCP server.
+Skill 负责制定计划，MCP Server 负责暴露受控工具，API 服务负责执行实际工作。制作流程编排不得在 Skill 和 MCP Server 中重复实现。
 
-## Production Workflow
+## 制作流程
 
-The target workflow contains three business stages and explicit human review
-points:
+目标工作流包含三个业务阶段，并在阶段之间设置明确的人工审核点：
 
-1. Create and approve a structured song plan, then generate candidate demos.
-2. Separate the selected demo and train or select an approved voice model.
-3. Convert the vocal, mix and master the tracks, then approve the delivery
-   package.
+1. 创建并审批结构化词曲企划，然后生成候选 Demo。
+2. 分离选定 Demo 的音轨，并训练或选择已批准的人声模型。
+3. 转换人声音色，完成混音和母带处理，然后审批最终交付包。
 
-Planned MCP capabilities correspond to the service boundaries:
+规划中的 MCP 能力与服务边界一一对应：
 
 ```text
 music.generate
@@ -66,12 +53,11 @@ voice.convert
 mix.master
 ```
 
-Tool names and schemas remain provisional until the contracts are reviewed and
-versioned under `contracts/mcp/`.
+在 `contracts/mcp/` 中完成契约评审和版本化之前，以上工具名和 Schema 均为暂定内容。
 
-## Repository Structure
+## 仓库结构
 
-The planned source tree is organized by independently deployable service:
+规划中的源码目录按可独立部署的服务组织：
 
 ```text
 .
@@ -97,7 +83,7 @@ The planned source tree is organized by independently deployable service:
 └── scripts/
 ```
 
-Each Python service uses the same local layout:
+每个 Python 服务使用相同的内部目录结构：
 
 ```text
 services/<service>/
@@ -107,24 +93,15 @@ services/<service>/
 └── tests/
 ```
 
-Service dependencies, container builds, and unit tests remain local to their
-service. Cross-service HTTP and MCP schemas live in `contracts/`. Shared Python
-packages will only be introduced when real cross-service duplication requires
-them.
+服务依赖、容器构建和单元测试保留在各自服务目录内。跨服务 HTTP 和 MCP Schema 统一放在 `contracts/`。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
 
-UVR5 and RVC are first-class services built and released by this repository.
-Maintained upstream implementations may be used as pinned algorithm
-dependencies, but their public WebUI, CLI, or container interface is not the
-VerdantFlare service contract.
+UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用锁定版本的成熟上游实现作为算法依赖，但上游公开的 WebUI、CLI 或容器接口不是 VerdantFlare 的服务契约。
 
-## Runtime Data
+## 运行数据
 
-Source control contains code, contracts, deployment configuration, and small
-non-media test fixtures. It must not contain source recordings, generated
-audio, voice models, model weights, caches, or delivery files.
+源码仓库只保存代码、契约、部署配置和小型非媒体测试数据，不得保存原始录音、生成音频、人声模型、模型权重、缓存或交付文件。
 
-Station provides project-scoped and model storage at runtime. A deployment may
-mount storage with the following logical layout:
+Station 在运行时提供项目范围存储和模型存储。部署可以挂载以下逻辑目录：
 
 ```text
 /data/verdantflare/music/
@@ -134,28 +111,21 @@ mount storage with the following logical layout:
 └── temp/
 ```
 
-Services receive project and asset resource handles from the Station boundary;
-they must not accept unrestricted host filesystem paths. Generated files are
-registered as task artifacts and asset versions rather than committed to Git.
+服务通过 Station 边界接收项目和资产资源句柄，不得接受不受限制的宿主机文件系统路径。生成文件应登记为 Task Artifact 和 AssetVersion，而不是提交到 Git。
 
-## Development Rules
+## 开发规则
 
-- Develop on `dev`; keep `main` as the stable branch.
-- Build and publish VerdantFlare-owned images for all five services.
-- Pin upstream source, Python dependencies, base images, and model revisions.
-- Preserve upstream license and attribution notices.
-- Keep secrets, credentials, media, model weights, and runtime data out of Git.
-- Add startup commands only after the corresponding path is executable and
-  tested.
-- Start with one working end-to-end path before expanding the complete
-  production workflow.
+- 在 `dev` 分支开发，`main` 作为稳定分支。
+- 为全部五个服务构建并发布由 VerdantFlare 维护的镜像。
+- 锁定上游源码、Python 依赖、基础镜像和模型 Revision。
+- 保留上游许可证和署名声明。
+- 禁止将 Secret、凭据、媒体文件、模型权重和运行数据提交到 Git。
+- 只有对应执行路径已经实现并通过测试后，才能添加启动命令。
+- 先跑通一条最小端到端链路，再扩展完整制作流程。
 
-## Design Sources
+## 设计来源
 
-- [AI music producer workflow](https://github.com/verdantflarehub/verdantflare-design/blob/dev/docs/design/workflow/verdantflare_music.md)
-- [Private deployment and MCP design](https://github.com/verdantflarehub/verdantflare-design/blob/dev/docs/design/workflow/verdantflare_music/AI%E9%9F%B3%E4%B9%90%E5%88%B6%E4%BD%9C%E4%BA%BA_0.%E6%8A%80%E6%9C%AF%E6%96%B9%E6%A1%88.md)
+- [AI 音乐制作人工作流](https://github.com/verdantflarehub/verdantflare-design/blob/dev/docs/design/workflow/verdantflare_music.md)
+- [私有化部署与 MCP 技术方案](https://github.com/verdantflarehub/verdantflare-design/blob/dev/docs/design/workflow/verdantflare_music/AI%E9%9F%B3%E4%B9%90%E5%88%B6%E4%BD%9C%E4%BA%BA_0.%E6%8A%80%E6%9C%AF%E6%96%B9%E6%A1%88.md)
 
-The design documents describe the target product. Claims about model
-availability, local inference support, GPU usage, latency, and output quality
-must be validated in this repository before they are treated as implementation
-facts.
+设计文档描述目标产品。模型可用性、本地推理支持、GPU 占用、处理延迟和输出质量等内容，必须先在本仓库中完成验证，才能作为实现事实。
