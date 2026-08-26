@@ -2,6 +2,8 @@
 
 该目录构建 VerdantFlare Music 的 MiniMax Music 3 本地推理镜像。服务直接采用 SGLang-Omni 提供的 OpenAI 兼容语音接口，不在其外层重复实现代理 API。
 
+镜像只提供供智能体和内部服务调用的 HTTP API，不包含 ComfyUI、Gradio 或其他 Web 操作界面。交互、试听和审核由 VerdantFlare Studio 承担。
+
 ## 锁定基线
 
 | 组件                 | 版本                                               |
