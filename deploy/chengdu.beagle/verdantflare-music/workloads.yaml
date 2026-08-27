@@ -37,6 +37,8 @@ spec:
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
+            - name: HF_HUB_DISABLE_XET
+              value: "1"
           ports:
             - name: http
               containerPort: 8000

@@ -16,6 +16,8 @@
 
 模型仓库中供当前 SGLang-Omni 稳定版使用的权重约 28.8 GB，不进入镜像或 Git。容器只下载该运行时实际读取的固定 revision 文件到挂载的模型目录；下载未完整完成时不会启动 API。
 
+受限网络环境可设置标准变量 `HF_ENDPOINT` 切换 Hugging Face 下载 endpoint。`chengdu.beagle` 使用 `https://hf-mirror.com`，并设置 `HF_HUB_DISABLE_XET=1` 通过公开 HTTP/LFS 路径下载，避免 Xet CAS 跳转；不需要 Hugging Face 凭据。
+
 ## 资源要求
 
 - 两张可见的 NVIDIA CUDA GPU。RTX 4090 部署必须给每个容器分配两张卡。
