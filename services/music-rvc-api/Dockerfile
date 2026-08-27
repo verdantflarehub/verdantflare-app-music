@@ -6,7 +6,7 @@ USER root
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RVC_UPSTREAM_VERSION=2.2.231006
 ARG RVC_COMMIT=9f2f0559e6932c10c48642d404e7d2e771d9db43
-ARG SERVICE_VERSION=0.1.3
+ARG SERVICE_VERSION=0.1.4
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 ARG PYTORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
 
@@ -46,7 +46,9 @@ RUN set -eux; \
         https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI.git rvc; \
     test "$(git -C rvc rev-parse HEAD)" = "${RVC_COMMIT}"; \
     sed -i 's/av.open(i, "rb")/av.open(i, "r")/' rvc/infer/lib/audio.py; \
+    sed -i 's/av.open(o, "wb", format=format)/av.open(o, "w", format=format)/' rvc/infer/lib/audio.py; \
     grep -F 'av.open(i, "r")' rvc/infer/lib/audio.py; \
+    grep -F 'av.open(o, "w", format=format)' rvc/infer/lib/audio.py; \
     rm -rf rvc/.git
 
 RUN set -eux; \
