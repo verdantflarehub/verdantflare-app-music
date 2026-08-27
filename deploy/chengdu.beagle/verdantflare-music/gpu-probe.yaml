@@ -14,6 +14,8 @@ spec:
         app.kubernetes.io/name: music3-dual-gpu-probe
     spec:
       restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -23,10 +25,10 @@ spec:
                     operator: In
                     values:
                       - NVIDIA-GeForce-RTX-4090
-                  - key: nvidia.com/device-plugin.config
+                  - key: nvidia.com/gpu.sharing-strategy
                     operator: In
                     values:
-                      - default
+                      - none
       containers:
         - name: probe
           image: registry.cn-qingdao.aliyuncs.com/wod/cuda:13.0-py312-szc

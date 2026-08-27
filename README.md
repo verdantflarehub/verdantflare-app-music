@@ -138,12 +138,14 @@ verdantflare-app:music-minimax-music3-api-v0.1.0
 声明式清单包括：
 
 - `namespace.yaml`：项目隔离边界。
-- `storage.yaml`：Music3、UVR5 和 RVC 独立 JuiceFS 模型卷，回收策略由集群 `juicefs` StorageClass 控制。
+- `storage.yaml`：Music3、UVR5 和 RVC 独立本地模型卷，使用集群 `hostpath` StorageClass。
 - `services.yaml`：五个只在集群内部暴露的 ClusterIP Service。
 - `workloads.yaml`：五个版本化服务 Deployment。
 - `gpu-probe.yaml`：在下载 Music3 模型前验证同一 Pod 可见两个不同 RTX 4090 UUID 的一次性 Job。
 
-Music3 申请两张完整 RTX 4090，并使用 32 GiB 内存型 `/dev/shm` 和 host IPC；UVR5 与 RVC 各申请一张完整 RTX 4090。GPU workload 同时要求 `NVIDIA-GeForce-RTX-4090` 和 `nvidia.com/device-plugin.config=default` 节点标签，避开 HAMI 份额节点，但不会固化临时空闲节点地址。
+五个服务和双 GPU 探测固定调度到 `10.241.109.7`。Music3 申请两张完整 RTX 4090，并使用 32 GiB 内存型 `/dev/shm` 和 host IPC；UVR5 与 RVC 各申请一张完整 RTX 4090。GPU workload 同时要求 `NVIDIA-GeForce-RTX-4090` 和 `nvidia.com/gpu.sharing-strategy=none` 节点标签，避开 GPU 共享节点。
+
+模型数据落在该节点的 `/data/volumes/`。`hostpath` 没有容量硬隔离且不能跨节点迁移；节点不可用或资源不足时停止验证，不自动迁移到其他节点。删除 PVC 会删除对应本地目录，操作前必须确认数据保留策略。
 
 ### 部署门禁
 
@@ -151,8 +153,8 @@ Music3 申请两张完整 RTX 4090，并使用 32 GiB 内存型 `/dev/shm` 和 h
 
 1. 五个版本镜像均由对应 `release` workflow 成功发布。当前五个版本已在 2026-08-27 完成构建和推送，部署时仍需重新核对对应 run 与镜像是否可拉取。
 2. Aliyun `wod/verdantflare-app` 中的五个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
-3. `juicefs` StorageClass 可用，且为模型卷保留至少 170 GiB 容量。
-4. 至少四张完整 RTX 4090 可用于同时运行 Music3、UVR5 和 RVC；只验证单个服务时可分别部署。
+3. `hostpath` StorageClass 可用，`10.241.109.7:/data` 至少有 170 GiB 可用容量。
+4. `10.241.109.7` 为 Ready，且至少四张完整 RTX 4090 可用于同时运行 Music3、UVR5 和 RVC。
 5. 已准备 `docs/acceptance.md` 要求的批准企划、歌词、音乐描述、真人录音和 LRC。
 
 先创建隔离 namespace：

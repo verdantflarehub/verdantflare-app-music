@@ -15,6 +15,8 @@ spec:
         app.kubernetes.io/name: music-minimax-music3-api
     spec:
       hostIPC: true
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -24,10 +26,10 @@ spec:
                     operator: In
                     values:
                       - NVIDIA-GeForce-RTX-4090
-                  - key: nvidia.com/device-plugin.config
+                  - key: nvidia.com/gpu.sharing-strategy
                     operator: In
                     values:
-                      - default
+                      - none
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-music3-api-v0.1.0
@@ -97,6 +99,8 @@ spec:
       labels:
         app.kubernetes.io/name: music-uvr5-api
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -106,10 +110,10 @@ spec:
                     operator: In
                     values:
                       - NVIDIA-GeForce-RTX-4090
-                  - key: nvidia.com/device-plugin.config
+                  - key: nvidia.com/gpu.sharing-strategy
                     operator: In
                     values:
-                      - default
+                      - none
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-uvr5-api-v0.1.0
@@ -175,6 +179,8 @@ spec:
       labels:
         app.kubernetes.io/name: music-rvc-api
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -184,10 +190,10 @@ spec:
                     operator: In
                     values:
                       - NVIDIA-GeForce-RTX-4090
-                  - key: nvidia.com/device-plugin.config
+                  - key: nvidia.com/gpu.sharing-strategy
                     operator: In
                     values:
-                      - default
+                      - none
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-rvc-api-v0.1.1
@@ -254,6 +260,8 @@ spec:
       labels:
         app.kubernetes.io/name: music-audio-mixer-api
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-audio-mixer-api-v0.1.0
@@ -303,6 +311,8 @@ spec:
       labels:
         app.kubernetes.io/name: music-mcp-server
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.1.0
