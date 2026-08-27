@@ -107,17 +107,17 @@ UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用�
 | `music-rvc-api`            | `music-rvc-api-vx.x.x`            |
 | `music-audio-mixer-api`    | `music-audio-mixer-api-vx.x.x`    |
 
-例如，MiniMax Music 3 API 的 `0.1.0` 版本使用：
+例如，MiniMax Music 3 API 的 `0.1.1` 版本使用：
 
 ```text
-verdantflare-app:music-minimax-music3-api-v0.1.0
+verdantflare-app:music-minimax-music3-api-v0.1.1
 ```
 
 版本号遵循 `MAJOR.MINOR.PATCH` 格式。已发布的版本 tag 不得覆盖，生产部署必须引用明确版本，不使用 `latest` 等浮动 tag。
 
 ## 当前实现
 
-`music-minimax-music3-api` v0.1.0 锁定 MiniMax Music 3 模型 Revision 和 SGLang-Omni 0.1.3，按两张可见 CUDA GPU 部署。服务采用 OpenAI 兼容的 `POST /v1/audio/speech` 和 `GET /health`；官方运行时的预期输出为 32 kHz、16-bit、双声道 WAV。
+`music-minimax-music3-api` v0.1.1 锁定 MiniMax Music 3 模型 Revision 和 SGLang-Omni 0.1.3，按两张可见 CUDA GPU 部署，并修复长提示词的 CFG prefill 配对。服务采用 OpenAI 兼容的 `POST /v1/audio/speech` 和 `GET /health`；官方运行时的预期输出为 32 kHz、16-bit、双声道 WAV。
 
 构建、运行、生成请求、资源要求和许可证约束见 [`services/music-minimax-music3-api/README.md`](services/music-minimax-music3-api/README.md)。该版本只完成模型推理边界；项目资产登记、候选任务编排和 MCP 工具不在此服务内实现。
 

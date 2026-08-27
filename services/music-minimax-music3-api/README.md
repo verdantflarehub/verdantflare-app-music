@@ -12,7 +12,7 @@
 | SGLang-Omni          | `0.1.3`                                            |
 | SGLang CUDA 基础镜像 | `lmsysorg/sglang:v0.5.16-cu130`                    |
 | UCX                  | `d8e50df6651b9ea5b76f23aee0aefbf053a4137a`         |
-| 服务镜像             | `verdantflare-app:music-minimax-music3-api-v0.1.0` |
+| 服务镜像             | `verdantflare-app:music-minimax-music3-api-v0.1.1` |
 
 模型仓库中供当前 SGLang-Omni 稳定版使用的权重约 28.8 GB，不进入镜像或 Git。容器只下载该运行时实际读取的固定 revision 文件到挂载的模型目录；下载未完整完成时不会启动 API。
 
@@ -27,7 +27,7 @@
 - 32 GB 共享内存。容器必须使用 `--shm-size 32g` 和 `--ipc host`。
 
 SGLang-Omni 将自回归阶段放在第一张可见 GPU，将 DIT/DAV 声学阶段放在第二张可见 GPU。启动入口发现少于两张 GPU 时会直接失败。
-RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.75`；默认值 `0.5` 不足以在加载 Qwen 权重后分配 KV cache。该环境同时设置 `--max-prefill-tokens 4096`，确保当前验收提示词的条件与无条件 CFG 两行能在同一个 prefill batch 内调度。调整歌词或音乐描述后，必须确认两行的提示词 token 总数不超过该值；SGLang-Omni 0.1.3 不会为超过预算的 CFG 对自动扩展 batch。
+RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.75`；默认值 `0.5` 不足以在加载 Qwen 权重后分配 KV cache。
 
 ## 构建
 
@@ -35,7 +35,7 @@ RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.75`；默
 
 ```bash
 docker build \
-  -t verdantflare-app:music-minimax-music3-api-v0.1.0 \
+  -t verdantflare-app:music-minimax-music3-api-v0.1.1 \
   services/music-minimax-music3-api
 ```
 
@@ -50,7 +50,7 @@ docker run --rm \
   --ipc host \
   -p 8000:8000 \
   -v /data/models/MiniMax-Music3:/models/MiniMax-Music3 \
-  verdantflare-app:music-minimax-music3-api-v0.1.0
+  verdantflare-app:music-minimax-music3-api-v0.1.1
 ```
 
 目标验证环境使用 Kubernetes context `chengdu.beagle` 和 namespace `verdantflare-music`。仓库根目录的

@@ -9,7 +9,7 @@ ARG SGLANG_OMNI_VERSION=0.1.3
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax Music 3 API"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.1.1"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-Music3-Community"
 
 # SGLang-Omni uses UCX for CUDA-aware tensor transport between pipeline stages.
@@ -38,6 +38,12 @@ RUN uv pip uninstall --system --break-system-packages flashinfer-cubin; \
     uv pip install --system --break-system-packages --prerelease=allow \
         "sglang-omni==${SGLANG_OMNI_VERSION}"; \
     python3 -c "import sglang_omni; assert sglang_omni.__version__ == '${SGLANG_OMNI_VERSION}'"
+
+# SGLang-Omni 0.1.3 can split the first Music3 CFG pair when its combined
+# prompt exceeds the default prefill budget.
+COPY patches/scheduler.py /usr/local/lib/python3.12/dist-packages/sglang_omni/models/minimax_music3/scheduler.py
+RUN python3 -m py_compile \
+    /usr/local/lib/python3.12/dist-packages/sglang_omni/models/minimax_music3/scheduler.py
 
 COPY entrypoint.sh /usr/local/bin/music-minimax-music3-entrypoint
 COPY LICENSE.minimax-music3 /usr/share/licenses/music-minimax-music3-api/LICENSE.minimax-music3

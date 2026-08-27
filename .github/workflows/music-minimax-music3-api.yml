@@ -17,7 +17,7 @@ concurrency:
 
 env:
   SERVICE: music-minimax-music3-api
-  VERSION: 0.1.0
+  VERSION: 0.1.1
 
 jobs:
   check:
@@ -37,6 +37,9 @@ jobs:
             bash -n "$script"
             shellcheck "$script"
           done < <(find "services/${SERVICE}" -type f -name '*.sh' -print0)
+
+      - name: Test scheduler patch
+        run: python3 -m unittest discover -s "services/${SERVICE}/tests" -v
 
   build:
     name: Build and push image
