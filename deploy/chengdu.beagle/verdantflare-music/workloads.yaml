@@ -15,8 +15,6 @@ spec:
         app.kubernetes.io/name: music-minimax-music3-api
     spec:
       hostIPC: true
-      imagePullSecrets:
-        - name: beagle-registry
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -96,8 +94,6 @@ spec:
       labels:
         app.kubernetes.io/name: music-uvr5-api
     spec:
-      imagePullSecrets:
-        - name: beagle-registry
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -176,8 +172,6 @@ spec:
       labels:
         app.kubernetes.io/name: music-rvc-api
     spec:
-      imagePullSecrets:
-        - name: beagle-registry
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -254,8 +248,6 @@ spec:
       labels:
         app.kubernetes.io/name: music-audio-mixer-api
     spec:
-      imagePullSecrets:
-        - name: beagle-registry
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-audio-mixer-api-v0.1.0
@@ -305,8 +297,6 @@ spec:
       labels:
         app.kubernetes.io/name: music-mcp-server
     spec:
-      imagePullSecrets:
-        - name: beagle-registry
       containers:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.1.0
