@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.title="VerdantFlare Music UVR5 API"
 LABEL org.opencontainers.image.version="0.1.0"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && apt-get install -y --no-install-recommends ffmpeg gcc libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
