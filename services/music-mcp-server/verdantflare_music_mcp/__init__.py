@@ -1,0 +1,1 @@
+"""VerdantFlare Music MCP service."""
