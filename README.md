@@ -162,7 +162,7 @@ kubectl --context chengdu.beagle apply \
   -f deploy/chengdu.beagle/verdantflare-music/namespace.yaml
 ```
 
-确认 `beagle-registry` 已由管理员放入该 namespace 后，执行双 GPU 探测：
+双 GPU 探测使用公开 CUDA 镜像，不依赖应用镜像仓库凭据：
 
 ```bash
 kubectl --context chengdu.beagle apply \
@@ -173,7 +173,8 @@ kubectl --context chengdu.beagle -n verdantflare-music \
   logs job/music3-dual-gpu-probe
 ```
 
-日志必须恰好包含两个不同 GPU UUID。探测通过且全部镜像发布后部署服务：
+日志必须恰好包含两个不同 GPU UUID。探测通过、全部镜像发布且管理员已将
+`beagle-registry` Secret 放入该 namespace 后部署服务：
 
 ```bash
 kubectl --context chengdu.beagle apply -k \
