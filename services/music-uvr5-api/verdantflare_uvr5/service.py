@@ -28,7 +28,7 @@ class UVR5Service:
             output_dir=str(output_directory),
             output_format="WAV",
             sample_rate=48000,
-            use_soundfile=True,
+            use_soundfile=False,
             use_autocast=True,
         )
 

@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 env:
   SERVICE: music-uvr5-api
-  VERSION: 0.1.4
+  VERSION: 0.1.5
 
 jobs:
   check:
