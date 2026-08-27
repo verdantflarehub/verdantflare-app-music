@@ -246,6 +246,8 @@ spec:
               mountPath: /models/rvc
             - name: temporary
               mountPath: /tmp/rvc
+            - name: shared-memory
+              mountPath: /dev/shm
       volumes:
         - name: models
           persistentVolumeClaim:
@@ -253,6 +255,10 @@ spec:
         - name: temporary
           emptyDir:
             sizeLimit: 100Gi
+        - name: shared-memory
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
