@@ -27,7 +27,7 @@
 - 32 GB 共享内存。容器必须使用 `--shm-size 32g` 和 `--ipc host`。
 
 SGLang-Omni 将自回归阶段放在第一张可见 GPU，将 DIT/DAV 声学阶段放在第二张可见 GPU。启动入口发现少于两张 GPU 时会直接失败。
-RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.75`；默认值 `0.5` 不足以在加载 Qwen 权重后分配 KV cache。
+RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.75`；默认值 `0.5` 不足以在加载 Qwen 权重后分配 KV cache。该环境同时设置 `--max-prefill-tokens 4096`，确保当前验收提示词的条件与无条件 CFG 两行能在同一个 prefill batch 内调度。调整歌词或音乐描述后，必须确认两行的提示词 token 总数不超过该值；SGLang-Omni 0.1.3 不会为超过预算的 CFG 对自动扩展 batch。
 
 ## 构建
 

@@ -38,6 +38,8 @@ spec:
           args:
             - --mem-fraction-static
             - "0.75"
+            - --max-prefill-tokens
+            - "4096"
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
