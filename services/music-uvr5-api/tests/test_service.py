@@ -17,11 +17,14 @@ class UVR5ServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "song_(vocal_dry).wav"
             output.touch()
-            self.assertEqual(UVR5Service._find_output([str(output)], "vocal_dry"), output)
+            self.assertEqual(
+                UVR5Service._find_output([output.name], "vocal_dry", output.parent),
+                output,
+            )
 
     def test_rejects_missing_named_output(self) -> None:
         with self.assertRaises(SeparationFailed):
-            UVR5Service._find_output([], "vocal_dry")
+            UVR5Service._find_output([], "vocal_dry", Path("/output"))
 
     def test_uses_ffmpeg_writer_for_compressed_inputs(self) -> None:
         separator_module = types.ModuleType("audio_separator.separator")
@@ -58,7 +61,7 @@ class UVR5ServiceTest(unittest.TestCase):
                 for output_name in custom_output_names.values():
                     output = Path(source).parent / f"{output_name}.wav"
                     output.touch()
-                    outputs.append(str(output))
+                    outputs.append(output.name)
                 return outputs
 
         with tempfile.TemporaryDirectory() as directory:

@@ -33,9 +33,14 @@ class UVR5Service:
         )
 
     @staticmethod
-    def _find_output(paths: list[str], expected_stem: str) -> Path:
+    def _find_output(paths: list[str], expected_stem: str, output_directory: Path) -> Path:
         expected = expected_stem.casefold()
-        matches = [Path(path) for path in paths if expected in Path(path).stem.casefold()]
+        candidates = [
+            path if path.is_absolute() else output_directory / path
+            for value in paths
+            if expected in (path := Path(value)).stem.casefold()
+        ]
+        matches = [path for path in candidates if path.is_file()]
         if len(matches) != 1 or not matches[0].is_file():
             raise SeparationFailed(f"separator did not produce the {expected_stem} stem")
         return matches[0]
@@ -70,8 +75,8 @@ class UVR5Service:
                     "Other": "instrumental_raw",
                 },
             )
-            vocal_wet = self._find_output(separated, "vocal_wet")
-            instrumental_raw = self._find_output(separated, "instrumental_raw")
+            vocal_wet = self._find_output(separated, "vocal_wet", work_directory)
+            instrumental_raw = self._find_output(separated, "instrumental_raw", work_directory)
 
             separator.load_model(model_filename=DEREVERB_MODEL)
             dereverbed = separator.separate(
@@ -81,7 +86,7 @@ class UVR5Service:
                     "Reverb": "discarded_reverb",
                 },
             )
-            vocal_dry = self._find_output(dereverbed, "vocal_dry")
+            vocal_dry = self._find_output(dereverbed, "vocal_dry", work_directory)
 
         instrumental = work_directory / "instrumental.wav"
         vocal = work_directory / "vocal_dry_original.wav"
