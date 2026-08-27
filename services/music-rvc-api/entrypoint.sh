@@ -7,7 +7,8 @@ readonly MODEL_BASE_URL="https://huggingface.co/lj1995/VoiceConversionWebUI/reso
 download_runtime_file() {
     local source_path="$1"
     local target_path="$2"
-    local target_directory="${RVC_RUNTIME_ROOT}/$(dirname "${target_path}")"
+    local target_directory
+    target_directory="${RVC_RUNTIME_ROOT}/$(dirname "${target_path}")"
     local filename
     filename="$(basename "${target_path}")"
     local target="${RVC_RUNTIME_ROOT}/${target_path}"
