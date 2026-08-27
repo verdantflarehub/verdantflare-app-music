@@ -7,7 +7,7 @@ ARG PYPI_INDEX_URL=https://pypi.org/simple
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music UVR5 API"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.1.1"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg gcc libsndfile1 \

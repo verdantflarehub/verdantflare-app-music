@@ -1,4 +1,4 @@
-audio-separator[gpu]==0.46.0
+audio-separator==0.46.0
 fastapi==0.116.1
 python-multipart==0.0.20
 uvicorn==0.35.0
