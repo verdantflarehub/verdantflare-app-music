@@ -35,6 +35,9 @@ spec:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-music3-api-v0.1.0
           imagePullPolicy: IfNotPresent
+          args:
+            - --mem-fraction-static
+            - "0.75"
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
