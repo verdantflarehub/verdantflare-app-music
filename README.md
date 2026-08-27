@@ -149,7 +149,7 @@ Music3 申请两张完整 RTX 4090，并使用 32 GiB 内存型 `/dev/shm` 和 h
 
 部署前必须同时满足：
 
-1. 五个版本镜像均由对应 `release` workflow 成功发布。当前 Music3 `v0.1.0` 的历史 run 为 `startup_failure`，重新构建成功前不得启动完整部署；其余四个服务的当前版本流水线已成功。
+1. 五个版本镜像均由对应 `release` workflow 成功发布。当前五个版本已在 2026-08-27 完成构建和推送，部署时仍需重新核对对应 run 与镜像是否可拉取。
 2. `verdantflare-music` namespace 内存在私有仓库拉取 Secret `beagle-registry`。Secret 由集群管理员提供，不进入本仓库。
 3. `juicefs` StorageClass 可用，且为模型卷保留至少 170 GiB 容量。
 4. 至少四张完整 RTX 4090 可用于同时运行 Music3、UVR5 和 RVC；只验证单个服务时可分别部署。
@@ -173,6 +173,7 @@ kubectl --context chengdu.beagle -n verdantflare-music \
   logs job/music3-dual-gpu-probe
 ```
 
+2026-08-27 的基线探测已在整卡节点成功识别两个不同的 24 GiB RTX 4090；该结果不替代部署前重跑。
 日志必须恰好包含两个不同 GPU UUID。探测通过、全部镜像发布且管理员已将
 `beagle-registry` Secret 放入该 namespace 后部署服务：
 
