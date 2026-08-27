@@ -4,6 +4,7 @@ metadata:
   name: music-minimax-music3-api
 spec:
   replicas: 1
+  progressDeadlineSeconds: 3600
   strategy:
     type: Recreate
   selector:
@@ -91,6 +92,7 @@ metadata:
   name: music-uvr5-api
 spec:
   replicas: 1
+  progressDeadlineSeconds: 3600
   strategy:
     type: Recreate
   selector:
@@ -171,6 +173,7 @@ metadata:
   name: music-rvc-api
 spec:
   replicas: 1
+  progressDeadlineSeconds: 3600
   strategy:
     type: Recreate
   selector:
