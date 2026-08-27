@@ -30,7 +30,7 @@
 | PyTorch | `2.4.1` |
 | CUDA | `12.4` |
 | RVC runtime model revision | `e6d0c1a17da07c33557852f9dfa2bd44cc75737d` |
-| 服务镜像 | `verdantflare-app:music-rvc-api-v0.1.2` |
+| 服务镜像 | `verdantflare-app:music-rvc-api-v0.1.3` |
 
 上游代码和依赖进入镜像；模型与镜像分离。容器首次启动时下载固定 revision 的 HuBERT、RMVPE 和 RVC v2 40 kHz 预训练权重到持久化 runtime 目录，不下载 UVR5 模型。
 上传录音在进入 RVC 上游预处理前统一解码为 40 kHz、单声道、16-bit PCM WAV，因此 API 可接受 FFmpeg 支持的 M4A、MP3、FLAC 和 WAV，而不依赖上传文件扩展名。
@@ -82,7 +82,7 @@ curl --fail --show-error \
 
 ```bash
 docker build \
-  -t verdantflare-app:music-rvc-api-v0.1.2 \
+  -t verdantflare-app:music-rvc-api-v0.1.3 \
   services/music-rvc-api
 ```
 
@@ -92,7 +92,7 @@ docker build \
 docker build \
   --build-arg BASE_IMAGE=registry.cn-qingdao.aliyuncs.com/wod/pytorch:2.4.1-cuda12.4-cudnn9-devel \
   --build-arg PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-  -t verdantflare-app:music-rvc-api-v0.1.2 \
+  -t verdantflare-app:music-rvc-api-v0.1.3 \
   services/music-rvc-api
 ```
 
@@ -106,7 +106,7 @@ docker run --rm \
   --shm-size 8g \
   -p 8000:8000 \
   -v /data/models/rvc:/models/rvc \
-  verdantflare-app:music-rvc-api-v0.1.2
+  verdantflare-app:music-rvc-api-v0.1.3
 ```
 
 服务固定使用单个 Uvicorn worker，并在进程内串行执行训练和转换，避免 GPU 并发与模型切换冲突。容器没有可见 CUDA GPU、基础权重下载失败或 API 无法启动时会直接失败。
