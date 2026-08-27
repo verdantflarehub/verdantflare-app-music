@@ -32,6 +32,9 @@ spec:
         - name: api
           image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-music3-api-v0.1.0
           imagePullPolicy: IfNotPresent
+          env:
+            - name: HF_ENDPOINT
+              value: https://hf-mirror.com
           ports:
             - name: http
               containerPort: 8000
@@ -187,8 +190,11 @@ spec:
                       - default
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-rvc-api-v2.2.231006
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-rvc-api-v0.1.1
           imagePullPolicy: IfNotPresent
+          env:
+            - name: HF_ENDPOINT
+              value: https://hf-mirror.com
           ports:
             - name: http
               containerPort: 8000

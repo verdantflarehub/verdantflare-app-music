@@ -2,7 +2,8 @@
 set -euo pipefail
 
 readonly MODEL_REVISION="e6d0c1a17da07c33557852f9dfa2bd44cc75737d"
-readonly MODEL_BASE_URL="https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/${MODEL_REVISION}"
+readonly MODEL_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+readonly MODEL_BASE_URL="${MODEL_ENDPOINT%/}/lj1995/VoiceConversionWebUI/resolve/${MODEL_REVISION}"
 
 download_runtime_file() {
     local source_path="$1"

@@ -17,7 +17,7 @@ concurrency:
 
 env:
   SERVICE: music-rvc-api
-  VERSION: 2.2.231006
+  VERSION: 0.1.1
 
 jobs:
   check:
@@ -105,6 +105,8 @@ jobs:
           push: true
           provenance: false
           sbom: false
+          build-args: |
+            SERVICE_VERSION=${{ env.VERSION }}
           tags: ${{ steps.image.outputs.image_name }}:${{ steps.image.outputs.image_version }}
           cache-from: type=gha,scope=${{ env.SERVICE }}
           cache-to: type=gha,mode=max,scope=${{ env.SERVICE }}

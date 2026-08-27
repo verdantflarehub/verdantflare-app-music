@@ -11,7 +11,7 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
 | 服务                       | 职责                                                                |
 | -------------------------- | ------------------------------------------------------------------- |
 | `music-mcp-server`         | 在 Station MCP 边界暴露音乐制作工具，校验请求并向内部服务提交任务。 |
-| `music-minimax-music3-api` | 提供 MiniMax Music 3 候选歌曲生成 API。                              |
+| `music-minimax-music3-api` | 提供 MiniMax Music 3 候选歌曲生成 API。                             |
 | `music-uvr5-api`           | 提供音轨分离、去混响、模型加载和任务状态 API。                      |
 | `music-rvc-api`            | 提供人声模型训练、模型管理和音色转换 API。                          |
 | `music-audio-mixer-api`    | 提供混音、母带处理、响度标准化和交付格式编码 API。                  |
@@ -99,13 +99,13 @@ UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用�
 
 五个服务镜像统一发布到 `verdantflare-app` 镜像仓库，以服务名和语义化版本组成 tag：
 
-| 服务                       | 镜像 tag 格式                                 |
-| -------------------------- | --------------------------------------------- |
-| `music-mcp-server`         | `music-mcp-server-vx.x.x`                     |
-| `music-minimax-music3-api` | `music-minimax-music3-api-vx.x.x`             |
-| `music-uvr5-api`           | `music-uvr5-api-vx.x.x`                       |
-| `music-rvc-api`            | `music-rvc-api-vx.x.x`                        |
-| `music-audio-mixer-api`    | `music-audio-mixer-api-vx.x.x`                |
+| 服务                       | 镜像 tag 格式                     |
+| -------------------------- | --------------------------------- |
+| `music-mcp-server`         | `music-mcp-server-vx.x.x`         |
+| `music-minimax-music3-api` | `music-minimax-music3-api-vx.x.x` |
+| `music-uvr5-api`           | `music-uvr5-api-vx.x.x`           |
+| `music-rvc-api`            | `music-rvc-api-vx.x.x`            |
+| `music-audio-mixer-api`    | `music-audio-mixer-api-vx.x.x`    |
 
 例如，MiniMax Music 3 API 的 `0.1.0` 版本使用：
 
@@ -180,7 +180,7 @@ kubectl --context chengdu.beagle -n verdantflare-music \
 kubectl --context chengdu.beagle apply -k \
   deploy/chengdu.beagle/verdantflare-music
 kubectl --context chengdu.beagle -n verdantflare-music \
-  rollout status deployment --all --timeout=60m
+  wait --for=condition=Available deployment --all --timeout=60m
 ```
 
 验收脚本从本机通过端口转发访问四个执行 API：

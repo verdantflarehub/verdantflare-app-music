@@ -4,14 +4,15 @@ FROM ${BASE_IMAGE}
 USER root
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG RVC_VERSION=2.2.231006
+ARG RVC_UPSTREAM_VERSION=2.2.231006
 ARG RVC_COMMIT=9f2f0559e6932c10c48642d404e7d2e771d9db43
+ARG SERVICE_VERSION=0.1.1
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 ARG PYTORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music RVC Runtime"
-LABEL org.opencontainers.image.version="${RVC_VERSION}"
+LABEL org.opencontainers.image.version="${SERVICE_VERSION}"
 LABEL org.opencontainers.image.licenses="MIT"
 
 RUN set -eux; \
@@ -41,7 +42,7 @@ RUN pip install --no-cache-dir --no-deps \
         torchvision==0.19.1
 
 RUN set -eux; \
-    git clone --branch "${RVC_VERSION}" --depth 1 \
+    git clone --branch "${RVC_UPSTREAM_VERSION}" --depth 1 \
         https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI.git rvc; \
     test "$(git -C rvc rev-parse HEAD)" = "${RVC_COMMIT}"; \
     rm -rf rvc/.git
