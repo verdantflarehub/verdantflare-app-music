@@ -50,6 +50,11 @@ docker run --rm \
   verdantflare-app:music-minimax-music3-api-v0.1.0
 ```
 
+目标验证环境使用 Kubernetes context `chengdu.beagle` 和 namespace `verdantflare-music`。仓库根目录的
+[`deploy/chengdu.beagle/verdantflare-music/`](../../deploy/chengdu.beagle/verdantflare-music/)
+提供声明式 Deployment、Service、模型 PVC 和双 GPU 探测 Job。部署前必须先运行探测 Job，并确认同一
+Pod 内可见两个不同的 RTX 4090 UUID；不得在 HAMI GPU 份额上运行 Music3。
+
 模型下载完成且两个推理阶段就绪后，健康检查返回 HTTP 200：
 
 ```bash

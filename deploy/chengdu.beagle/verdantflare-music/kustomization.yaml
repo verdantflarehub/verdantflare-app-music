@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: verdantflare-music
+resources:
+  - namespace.yaml
+  - storage.yaml
+  - services.yaml
+  - workloads.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: verdantflare-music
+

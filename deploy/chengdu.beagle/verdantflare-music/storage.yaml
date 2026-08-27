@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: music3-models
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: juicefs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uvr5-models
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: juicefs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rvc-models
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: juicefs
+

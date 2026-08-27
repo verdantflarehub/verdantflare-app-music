@@ -63,6 +63,9 @@ mix.master
 .
 ├── .github/
 │   └── workflows/
+├── deploy/
+│   └── chengdu.beagle/
+│       └── verdantflare-music/
 ├── README.md
 ├── services/
 │   ├── music-mcp-server/
@@ -88,7 +91,7 @@ services/<service>/
 
 服务依赖、镜像构建文件和测试保留在各自服务目录内。直接采用成熟上游运行时的 Music3 服务不重复包装 Python 应用；UVR5、RVC 和 Mixer 只包装 VerdantFlare 所需的受控 HTTP 契约。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
 
-`.github/workflows/` 按一个应用一个 YAML 负责测试、构建五个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。Station 部署与 GPU 调度配置不在本次草案中虚构，待目标集群资源和 Station Runtime 接口确定后单独评审。
+`.github/workflows/` 按一个应用一个 YAML 负责测试、构建五个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。`deploy/chengdu.beagle/verdantflare-music/` 保存目标验证集群的声明式 Kubernetes 配置；Station Runtime 资源接口仍需单独完成集成评审。
 
 UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用锁定版本的成熟上游实现作为算法依赖，但上游公开的 WebUI、CLI 或容器接口不是 VerdantFlare 的服务契约。
 
@@ -127,6 +130,72 @@ verdantflare-app:music-minimax-music3-api-v0.1.0
 `music-mcp-server` 暴露五个 `v1-draft` 结构化工具，不传输媒体 Base64，不接收宿主机路径，也不复制 Station 的 Task/Attempt/Artifact/AssetVersion。端到端输入、执行命令和全部验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
 
 当前静态、单元和契约测试不等于音频质量验收。只有在目标 GPU 跑完真实端到端脚本并完成人工审核后，才能确认模型效果、显存需求、处理时间和最终母带参数。
+
+## Kubernetes 验证环境
+
+真实 GPU、模型和音频端到端验证固定使用 Kubernetes context `chengdu.beagle` 和专用 namespace `verdantflare-music`。所有命令显式指定 context，不修改本机全局 current-context。
+
+声明式清单包括：
+
+- `namespace.yaml`：项目隔离边界。
+- `storage.yaml`：Music3、UVR5 和 RVC 独立 JuiceFS 模型卷，回收策略由集群 `juicefs` StorageClass 控制。
+- `services.yaml`：五个只在集群内部暴露的 ClusterIP Service。
+- `workloads.yaml`：五个版本化服务 Deployment。
+- `gpu-probe.yaml`：在下载 Music3 模型前验证同一 Pod 可见两个不同 RTX 4090 UUID 的一次性 Job。
+
+Music3 申请两张完整 RTX 4090，并使用 32 GiB 内存型 `/dev/shm` 和 host IPC；UVR5 与 RVC 各申请一张完整 RTX 4090。GPU workload 同时要求 `NVIDIA-GeForce-RTX-4090` 和 `nvidia.com/device-plugin.config=default` 节点标签，避开 HAMI 份额节点，但不会固化临时空闲节点地址。
+
+### 部署门禁
+
+部署前必须同时满足：
+
+1. 五个版本镜像均由对应 `release` workflow 成功发布。当前 Music3 `v0.1.0` 的历史 run 为 `startup_failure`，重新构建成功前不得启动完整部署；其余四个服务的当前版本流水线已成功。
+2. `verdantflare-music` namespace 内存在私有仓库拉取 Secret `beagle-registry`。Secret 由集群管理员提供，不进入本仓库。
+3. `juicefs` StorageClass 可用，且为模型卷保留至少 170 GiB 容量。
+4. 至少四张完整 RTX 4090 可用于同时运行 Music3、UVR5 和 RVC；只验证单个服务时可分别部署。
+5. 已准备 `docs/acceptance.md` 要求的批准企划、歌词、音乐描述、真人录音和 LRC。
+
+先创建隔离 namespace：
+
+```bash
+kubectl --context chengdu.beagle apply \
+  -f deploy/chengdu.beagle/verdantflare-music/namespace.yaml
+```
+
+确认 `beagle-registry` 已由管理员放入该 namespace 后，执行双 GPU 探测：
+
+```bash
+kubectl --context chengdu.beagle apply \
+  -f deploy/chengdu.beagle/verdantflare-music/gpu-probe.yaml
+kubectl --context chengdu.beagle -n verdantflare-music \
+  wait --for=condition=complete job/music3-dual-gpu-probe --timeout=10m
+kubectl --context chengdu.beagle -n verdantflare-music \
+  logs job/music3-dual-gpu-probe
+```
+
+日志必须恰好包含两个不同 GPU UUID。探测通过且全部镜像发布后部署服务：
+
+```bash
+kubectl --context chengdu.beagle apply -k \
+  deploy/chengdu.beagle/verdantflare-music
+kubectl --context chengdu.beagle -n verdantflare-music \
+  rollout status deployment --all --timeout=60m
+```
+
+验收脚本从本机通过端口转发访问四个执行 API：
+
+```bash
+kubectl --context chengdu.beagle -n verdantflare-music \
+  port-forward service/music-minimax-music3-api 8001:8000
+kubectl --context chengdu.beagle -n verdantflare-music \
+  port-forward service/music-uvr5-api 8002:8000
+kubectl --context chengdu.beagle -n verdantflare-music \
+  port-forward service/music-rvc-api 8003:8000
+kubectl --context chengdu.beagle -n verdantflare-music \
+  port-forward service/music-audio-mixer-api 8004:8000
+```
+
+四条端口转发需要在独立终端持续运行。随后按 [`docs/acceptance.md`](docs/acceptance.md) 设置真实输入并执行 `scripts/acceptance-music-workflow.sh`。脚本格式验收通过后仍需完成五个人工审核点，才能推进 `main`。
 
 ## 运行数据
 

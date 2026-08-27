@@ -1,0 +1,345 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-minimax-music3-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-minimax-music3-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-minimax-music3-api
+    spec:
+      hostIPC: true
+      imagePullSecrets:
+        - name: beagle-registry
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-GeForce-RTX-4090
+                  - key: nvidia.com/device-plugin.config
+                    operator: In
+                    values:
+                      - default
+      containers:
+        - name: api
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-music3-api-v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "16"
+              memory: 64Gi
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "32"
+              memory: 128Gi
+              nvidia.com/gpu: "2"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: models
+              mountPath: /models/MiniMax-Music3
+            - name: shared-memory
+              mountPath: /dev/shm
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: music3-models
+        - name: shared-memory
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-uvr5-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-uvr5-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-uvr5-api
+    spec:
+      imagePullSecrets:
+        - name: beagle-registry
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-GeForce-RTX-4090
+                  - key: nvidia.com/device-plugin.config
+                    operator: In
+                    values:
+                      - default
+      containers:
+        - name: api
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-uvr5-api-v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "8"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "16"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: models
+              mountPath: /models/audio-separator
+            - name: temporary
+              mountPath: /tmp/uvr5
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: uvr5-models
+        - name: temporary
+          emptyDir:
+            sizeLimit: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-rvc-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-rvc-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-rvc-api
+    spec:
+      imagePullSecrets:
+        - name: beagle-registry
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-GeForce-RTX-4090
+                  - key: nvidia.com/device-plugin.config
+                    operator: In
+                    values:
+                      - default
+      containers:
+        - name: api
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-rvc-api-v2.2.231006
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "16"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "32"
+              memory: 96Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: models
+              mountPath: /models/rvc
+            - name: temporary
+              mountPath: /tmp/rvc
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: rvc-models
+        - name: temporary
+          emptyDir:
+            sizeLimit: 100Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-audio-mixer-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-audio-mixer-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-audio-mixer-api
+    spec:
+      imagePullSecrets:
+        - name: beagle-registry
+      containers:
+        - name: api
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-audio-mixer-api-v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp/music-mixer
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 5
+      volumes:
+        - name: temporary
+          emptyDir:
+            sizeLimit: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-mcp-server
+    spec:
+      imagePullSecrets:
+        - name: beagle-registry
+      containers:
+        - name: api
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MUSIC3_URL
+              value: http://music-minimax-music3-api:8000
+            - name: UVR5_URL
+              value: http://music-uvr5-api:8000
+            - name: RVC_URL
+              value: http://music-rvc-api:8000
+            - name: MIXER_URL
+              value: http://music-audio-mixer-api:8000
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 5

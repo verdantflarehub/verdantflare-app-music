@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: music3-dual-gpu-probe
+  namespace: verdantflare-music
+  labels:
+    app.kubernetes.io/part-of: verdantflare-music
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music3-dual-gpu-probe
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: beagle-registry
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-GeForce-RTX-4090
+                  - key: nvidia.com/device-plugin.config
+                    operator: In
+                    values:
+                      - default
+      containers:
+        - name: probe
+          image: registry.cn-qingdao.aliyuncs.com/wod/cuda:13.0-py312-szc
+          command:
+            - /bin/bash
+            - -ceu
+            - |
+              test "$(nvidia-smi --query-gpu=uuid --format=csv,noheader | sort -u | wc -l)" -eq 2
+              nvidia-smi --query-gpu=uuid,name,memory.total,driver_version --format=csv,noheader
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "2"
+              memory: 2Gi
+              nvidia.com/gpu: "2"
