@@ -27,7 +27,7 @@
 - 32 GB 共享内存。容器必须使用 `--shm-size 32g` 和 `--ipc host`。
 
 SGLang-Omni 将自回归阶段放在第一张可见 GPU，将 DIT/DAV 声学阶段放在第二张可见 GPU。启动入口发现少于两张 GPU 时会直接失败。
-RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.75`；默认值 `0.5` 不足以在加载 Qwen 权重后分配 KV cache。
+RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.80`；默认值 `0.5` 不足以在加载 Qwen 权重后分配 KV cache。200 秒验收请求的 1,145-token 提示词需要为条件与无条件 CFG 两行预留至少 12,292 个 KV token；调低该值后必须重新核对启动日志中的 KV cache 容量。
 
 ## 构建
 

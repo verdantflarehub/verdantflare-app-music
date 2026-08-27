@@ -37,7 +37,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --mem-fraction-static
-            - "0.75"
+            - "0.80"
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
