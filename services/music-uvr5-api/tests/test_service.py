@@ -45,6 +45,43 @@ class UVR5ServiceTest(unittest.TestCase):
 
         self.assertFalse(separator.options["use_soundfile"])
 
+    def test_uses_model_stem_names_for_both_stages(self) -> None:
+        calls = []
+
+        class FakeSeparator:
+            def load_model(self, model_filename):
+                pass
+
+            def separate(self, source, custom_output_names):
+                calls.append(custom_output_names)
+                outputs = []
+                for output_name in custom_output_names.values():
+                    output = Path(source).parent / f"{output_name}.wav"
+                    output.touch()
+                    outputs.append(str(output))
+                return outputs
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "input.mp3"
+            source.touch()
+            service = UVR5Service(Path("/models"))
+            with (
+                patch.object(service, "_separator", return_value=FakeSeparator()),
+                patch.object(service, "_normalize", side_effect=lambda _, output: output.touch()),
+            ):
+                archive = service.separate(source, root)
+
+            self.assertTrue(archive.is_file())
+
+        self.assertEqual(
+            calls,
+            [
+                {"Vocals": "vocal_wet", "Other": "instrumental_raw"},
+                {"Noreverb": "vocal_dry", "Reverb": "discarded_reverb"},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

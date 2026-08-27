@@ -123,7 +123,7 @@ spec:
                       - none
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-uvr5-api-v0.1.5
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-uvr5-api-v0.1.6
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

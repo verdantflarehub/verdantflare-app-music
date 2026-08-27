@@ -67,7 +67,7 @@ class UVR5Service:
                 str(source),
                 custom_output_names={
                     "Vocals": "vocal_wet",
-                    "Instrumental": "instrumental_raw",
+                    "Other": "instrumental_raw",
                 },
             )
             vocal_wet = self._find_output(separated, "vocal_wet")
@@ -77,7 +77,7 @@ class UVR5Service:
             dereverbed = separator.separate(
                 str(vocal_wet),
                 custom_output_names={
-                    "No Reverb": "vocal_dry",
+                    "Noreverb": "vocal_dry",
                     "Reverb": "discarded_reverb",
                 },
             )
