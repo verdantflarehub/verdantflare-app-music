@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,15 @@ from .locks import GPU_LOCK
 
 
 logger = logging.getLogger(__name__)
+
+
+def _create_upstream_config(config_type: Any) -> Any:
+    process_arguments = sys.argv
+    try:
+        sys.argv = process_arguments[:1]
+        return config_type()
+    finally:
+        sys.argv = process_arguments
 
 
 class ConversionFailed(RuntimeError):
@@ -26,7 +36,7 @@ class RVCService:
             from configs.config import Config
             from infer.modules.vc.modules import VC
 
-            self._vc = VC(Config())
+            self._vc = VC(_create_upstream_config(Config))
         return self._vc
 
     def _load_model(self, model: VoiceModel) -> Any:

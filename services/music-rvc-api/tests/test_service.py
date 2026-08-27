@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from verdantflare_rvc.catalog import VoiceModelCatalog
-from verdantflare_rvc.service import ConversionFailed, RVCService
+from verdantflare_rvc.service import ConversionFailed, RVCService, _create_upstream_config
 
 
 class FakeVC:
@@ -35,6 +36,25 @@ class RVCServiceTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
+
+    def test_creates_upstream_config_without_uvicorn_arguments(self) -> None:
+        process_arguments = ["uvicorn", "verdantflare_rvc.api:app", "--port", "8000"]
+        observed_arguments: list[str] = []
+
+        class FakeConfig:
+            def __init__(self) -> None:
+                observed_arguments.extend(sys.argv)
+
+        original_arguments = sys.argv
+        sys.argv = process_arguments
+        try:
+            config = _create_upstream_config(FakeConfig)
+        finally:
+            sys.argv = original_arguments
+
+        self.assertIsInstance(config, FakeConfig)
+        self.assertEqual(observed_arguments, ["uvicorn"])
+        self.assertIs(sys.argv, original_arguments)
 
     def test_converts_with_catalog_model_and_disables_missing_index(self) -> None:
         backend = FakeVC()
