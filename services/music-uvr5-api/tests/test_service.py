@@ -4,10 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from verdantflare_uvr5.service import SeparationFailed, UVR5Service
+from verdantflare_uvr5.service import SEPARATION_MODEL, SeparationFailed, UVR5Service
 
 
 class UVR5ServiceTest(unittest.TestCase):
+    def test_uses_upstream_big_beta_4_filename(self):
+        self.assertEqual(SEPARATION_MODEL, "melband_roformer_big_beta4.ckpt")
+
     def test_finds_named_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "song_(vocal_dry).wav"

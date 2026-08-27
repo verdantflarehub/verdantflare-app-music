@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 
-SEPARATION_MODEL = "mel_band_roformer_big_beta4.ckpt"
+SEPARATION_MODEL = "melband_roformer_big_beta4.ckpt"
 DEREVERB_MODEL = "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt"
 GPU_LOCK = threading.Lock()
 
