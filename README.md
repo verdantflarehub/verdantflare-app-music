@@ -133,7 +133,7 @@ verdantflare-app:music-minimax-music3-api-v0.1.0
 
 ## Kubernetes 验证环境
 
-真实 GPU、模型和音频端到端验证固定使用 Kubernetes context `chengdu.beagle` 和专用 namespace `verdantflare-music`。所有命令显式指定 context，不修改本机全局 current-context。
+真实 GPU、模型和音频端到端验证固定使用 Kubernetes context `chengdu.beagle` 和专用 namespace `verdantflare-music`。所有命令显式指定 context，不修改本机全局 current-context。该 namespace 使用 `hami.io/webhook=ignore` 绕过 HAMI 份额调度，由默认 NVIDIA device-plugin 分配完整物理 GPU。
 
 声明式清单包括：
 
