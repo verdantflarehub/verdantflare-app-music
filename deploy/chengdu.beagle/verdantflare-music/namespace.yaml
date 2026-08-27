@@ -4,4 +4,3 @@ metadata:
   name: verdantflare-music
   labels:
     app.kubernetes.io/name: verdantflare-music
-    hami.io/webhook: ignore
