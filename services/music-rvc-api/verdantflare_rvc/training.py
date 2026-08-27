@@ -64,8 +64,7 @@ class RVCTrainer:
             work_dir = Path(temporary_directory)
             dataset_dir = work_dir / "dataset"
             dataset_dir.mkdir()
-            dataset_audio = dataset_dir / "voice.audio"
-            shutil.copyfile(source_audio, dataset_audio)
+            dataset_audio = dataset_dir / "voice.wav"
 
             experiment_id = f"verdantflare-{model_id}-{os.getpid()}"
             experiment_dir = self.upstream_root / "logs" / experiment_id
@@ -75,6 +74,7 @@ class RVCTrainer:
             installed = False
 
             try:
+                self._prepare_dataset_audio(source_audio, dataset_audio, log_path)
                 self._preprocess(dataset_dir, experiment_dir, log_path)
                 self._extract_features(experiment_dir, log_path)
                 self._write_training_files(experiment_dir)
@@ -121,6 +121,29 @@ class RVCTrainer:
                 shutil.rmtree(experiment_dir, ignore_errors=True)
                 shutil.rmtree(staging_directory, ignore_errors=True)
                 checkpoint_source.unlink(missing_ok=True)
+
+    def _prepare_dataset_audio(
+        self, source_audio: Path, dataset_audio: Path, log_path: Path
+    ) -> None:
+        self._run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                str(source_audio),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "40000",
+                "-c:a",
+                "pcm_s16le",
+                str(dataset_audio),
+            ],
+            log_path,
+        )
 
     def _run(self, arguments: list[str], log_path: Path, *, success_codes: tuple[int, ...] = (0,)) -> None:
         with log_path.open("ab") as log:

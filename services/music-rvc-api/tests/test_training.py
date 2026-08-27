@@ -68,6 +68,34 @@ class RVCTrainerTest(unittest.TestCase):
 
         self.trainer._run(["python", "train.py"], log, success_codes=(0, 149))
 
+    def test_prepares_supported_wav_dataset_input(self) -> None:
+        source = self.root / "training.audio"
+        destination = self.root / "dataset" / "voice.wav"
+        log = self.root / "training.log"
+
+        with patch.object(self.trainer, "_run") as run:
+            self.trainer._prepare_dataset_audio(source, destination, log)
+
+        run.assert_called_once_with(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "40000",
+                "-c:a",
+                "pcm_s16le",
+                str(destination),
+            ],
+            log,
+        )
+
     def test_archive_uses_business_output_names(self) -> None:
         checkpoint = self.root / "model.pth"
         index = self.root / "model.index"
