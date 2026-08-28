@@ -7,10 +7,19 @@ import re
 import wave
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
-from .artifacts import ArtifactRecord, ArtifactStore, require_filename, require_project_id
+from .artifacts import (
+    MAX_ARTIFACT_BYTES,
+    ArtifactError,
+    ArtifactRecord,
+    ArtifactStore,
+    require_filename,
+    require_project_id,
+)
 
 
 class ExecutionError(RuntimeError):
@@ -18,6 +27,16 @@ class ExecutionError(RuntimeError):
 
 
 MODEL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+AUDIO_MEDIA_TYPES = {
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+}
 
 
 def require_model_id(model_id: str) -> str:
@@ -25,6 +44,71 @@ def require_model_id(model_id: str) -> str:
     if not MODEL_ID_PATTERN.fullmatch(value):
         raise ValueError("model_id must contain 1-64 ASCII letters, digits, dots, underscores, or hyphens")
     return value
+
+
+def require_sha256(value: str) -> str:
+    digest = value.strip().lower()
+    if not SHA256_PATTERN.fullmatch(digest):
+        raise ValueError("expected_sha256 must contain exactly 64 hexadecimal characters")
+    return digest
+
+
+def require_audio_filename(filename: str) -> tuple[str, str]:
+    safe_filename = require_filename(filename)
+    media_type = AUDIO_MEDIA_TYPES.get(Path(safe_filename).suffix.lower())
+    if media_type is None:
+        raise ValueError("filename must use a supported audio extension")
+    return safe_filename, media_type
+
+
+def normalized_https_origin(value: str) -> str:
+    parsed = urlsplit(value.strip())
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("asset import origins must be absolute HTTPS origins")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("asset import origin has an invalid port") from error
+    host = parsed.hostname.lower()
+    return f"https://{host}" if port in {None, 443} else f"https://{host}:{port}"
+
+
+def parse_asset_import_origins(value: str) -> frozenset[str]:
+    return frozenset(normalized_https_origin(item) for item in value.split(",") if item.strip())
+
+
+def require_import_url(source_url: str, allowed_origins: frozenset[str]) -> None:
+    if not allowed_origins:
+        raise ExecutionError("S3 asset import is disabled")
+    if len(source_url) > 4096:
+        raise ValueError("source_url exceeds 4096 characters")
+    parsed = urlsplit(source_url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or not parsed.path
+        or parsed.path == "/"
+        or parsed.fragment
+    ):
+        raise ValueError("source_url must be an absolute HTTPS object URL without credentials or a fragment")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("source_url has an invalid port") from error
+    host = parsed.hostname.lower()
+    origin = f"https://{host}" if port in {None, 443} else f"https://{host}:{port}"
+    if origin not in allowed_origins:
+        raise ValueError("source_url origin is not allowed")
 
 
 @dataclass(frozen=True)
@@ -97,12 +181,18 @@ class MusicExecutor:
         store: ArtifactStore,
         service_urls: ServiceURLs,
         client: httpx.Client | None = None,
+        asset_import_origins: frozenset[str] | None = None,
     ) -> None:
         self.store = store
         self.service_urls = service_urls
         self.client = client or httpx.Client(
             timeout=httpx.Timeout(connect=10.0, read=3600.0, write=600.0, pool=10.0),
             follow_redirects=False,
+        )
+        self.asset_import_origins = (
+            parse_asset_import_origins(os.environ.get("MUSIC_ASSET_IMPORT_ORIGINS", ""))
+            if asset_import_origins is None
+            else asset_import_origins
         )
 
     def _post(self, service: str, url: str, **kwargs: object) -> bytes:
@@ -115,6 +205,48 @@ class MusicExecutor:
         if not response.content:
             raise ExecutionError(f"{service} returned an empty response")
         return response.content
+
+    def import_asset(
+        self,
+        *,
+        project_id: str,
+        source_url: str,
+        filename: str,
+        expected_sha256: str,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        safe_filename, media_type = require_audio_filename(filename)
+        digest = require_sha256(expected_sha256)
+        require_import_url(source_url, self.asset_import_origins)
+        try:
+            with self.client.stream(
+                "GET",
+                source_url,
+                headers={"Accept": "audio/*, application/octet-stream"},
+            ) as response:
+                if response.status_code < 200 or response.status_code >= 300:
+                    raise ExecutionError(f"S3 asset import returned HTTP {response.status_code}")
+                content_length = response.headers.get("content-length")
+                if content_length is not None:
+                    try:
+                        declared_size = int(content_length)
+                    except ValueError as error:
+                        raise ExecutionError("S3 asset import returned an invalid Content-Length") from error
+                    if declared_size <= 0 or declared_size > MAX_ARTIFACT_BYTES:
+                        raise ExecutionError("S3 asset import size must be between 1 byte and 1 GiB")
+                record = self.store.create_from_chunks(
+                    project_id=project,
+                    operation="asset.import",
+                    filename=safe_filename,
+                    media_type=media_type,
+                    chunks=response.iter_bytes(),
+                    expected_sha256=digest,
+                )
+        except ArtifactError:
+            raise
+        except httpx.HTTPError as error:
+            raise ExecutionError("S3 asset import request failed") from error
+        return [record]
 
     def generate(
         self,

@@ -28,6 +28,7 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
 用户
   -> verdantflare-music Skill
   -> music-mcp-server
+  -> approved external S3/CDN asset
   -> generator / UVR5 / RVC / mixer API
   -> 项目 Artifact
 ```
@@ -45,6 +46,7 @@ Skill 负责制定计划和审核门禁，MCP Server 负责执行单步工具及
 MCP 能力与服务边界一一对应：
 
 ```text
+asset.import
 music.generate
 stems.separate
 voice.train
@@ -126,7 +128,7 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 `music-uvr5-api` 使用锁定的 `audio-separator`、MelBand RoFormer 和独立去混响模型，返回 24-bit/48 kHz 的 `instrumental.wav` 与 `vocal_dry_original.wav`。`music-audio-mixer-api` 使用 Pedalboard 和 FFmpeg 生成母带 WAV、320 kbps MP3，并验证、原样打包调用方提供的 LRC。
 
-`music-mcp-server` v0.2.0 暴露五个可执行 v1 工具，直接调用四个内部 API，并将结果登记到项目范围的持久化 Artifact 存储。它不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
+`music-mcp-server` v0.3.0 暴露六个可执行 v1 工具，可从配置白名单中的外部 S3/CDN HTTPS origin 流式导入客户音频，直接调用四个内部 API，并将结果登记到项目范围的持久化 Artifact 存储。导入必须提供预期 SHA-256，服务禁用跳转并限制大小；它不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
 
 当前静态、单元和契约测试不等于音频质量验收。只有在目标 GPU 跑完真实端到端脚本并完成人工审核后，才能确认模型效果、显存需求、处理时间和最终母带参数。
 
@@ -150,7 +152,7 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 部署前必须同时满足：
 
-1. 五个版本镜像均由对应 `release` workflow 成功发布。`music-mcp-server-v0.2.0` 在本次变更进入 `release` 并完成流水线前不得部署；其余镜像也需重新核对对应 run 与公开拉取状态。
+1. 五个版本镜像均由对应 `release` workflow 成功发布。`music-mcp-server-v0.3.0` 在本次变更进入 `release` 并完成流水线前不得部署；其余镜像也需重新核对对应 run 与公开拉取状态。
 2. Aliyun `wod/verdantflare-app` 中的五个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
 3. `hostpath` StorageClass 可用，`10.241.109.7:/data` 至少有 270 GiB 可用容量。
 4. `10.241.109.7` 为 Ready，且至少四张完整 RTX 4090 可用于同时运行 Music3、UVR5 和 RVC。

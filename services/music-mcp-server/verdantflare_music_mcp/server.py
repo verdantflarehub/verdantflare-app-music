@@ -22,6 +22,23 @@ executor = MusicExecutor(store, ServiceURLs.from_environment())
 mcp = MCPServer("VerdantFlare Music")
 
 
+@mcp.tool(name="asset.import")
+def asset_import(
+    project_id: str,
+    source_url: str,
+    filename: str,
+    expected_sha256: str,
+) -> types.CallToolResult:
+    """Import an approved S3 audio object into project-scoped Artifact storage after integrity verification."""
+    records = executor.import_asset(
+        project_id=project_id,
+        source_url=source_url,
+        filename=filename,
+        expected_sha256=expected_sha256,
+    )
+    return artifact_result(store, project_id, "asset.import", records)
+
+
 @mcp.tool(name="music.generate")
 def music_generate(
     project_id: str,

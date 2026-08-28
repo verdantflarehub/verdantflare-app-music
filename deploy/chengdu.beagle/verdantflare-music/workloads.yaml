@@ -329,11 +329,13 @@ spec:
         kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.2.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.3.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MUSIC_ARTIFACT_ROOT
               value: /data/projects
+            - name: MUSIC_ASSET_IMPORT_ORIGINS
+              value: https://cache.ali.wodcloud.com
             - name: MUSIC3_URL
               value: http://music-minimax-music3-api:8000
             - name: UVR5_URL

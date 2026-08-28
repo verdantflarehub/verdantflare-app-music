@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from verdantflare_music_mcp.artifacts import ArtifactNotFound, ArtifactStore
+from verdantflare_music_mcp.artifacts import ArtifactError, ArtifactNotFound, ArtifactStore
 
 
 class ArtifactStoreTest(unittest.TestCase):
@@ -45,6 +45,31 @@ class ArtifactStoreTest(unittest.TestCase):
                     media_type="audio/wav",
                     payload=b"audio",
                 )
+
+    def test_streamed_create_is_atomic_and_verifies_sha256(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(Path(directory))
+            record = store.create_from_chunks(
+                project_id="project",
+                operation="asset.import",
+                filename="source.mp3",
+                media_type="audio/mpeg",
+                chunks=(b"source-", b"audio"),
+                expected_sha256="2578ea4ee8aa86428a0bb186f0a10b576a608fe22921b8d903f684443b7fe170",
+            )
+            self.assertEqual(store.read(record.artifact_id, "project")[1], b"source-audio")
+
+            with self.assertRaisesRegex(ArtifactError, "SHA-256"):
+                store.create_from_chunks(
+                    project_id="project",
+                    operation="asset.import",
+                    filename="source.mp3",
+                    media_type="audio/mpeg",
+                    chunks=(b"different",),
+                    expected_sha256="0" * 64,
+                )
+            entries = [path for path in (Path(directory) / "artifacts").iterdir() if path.is_dir()]
+            self.assertEqual(entries, [Path(directory) / "artifacts" / record.artifact_id])
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -84,12 +85,28 @@ class ArtifactStore:
         media_type: str,
         payload: bytes,
     ) -> ArtifactRecord:
-        project = require_project_id(project_id)
-        safe_filename = require_filename(filename)
         if not payload:
             raise ArtifactError("artifact payload is empty")
-        if len(payload) > MAX_ARTIFACT_BYTES:
-            raise ArtifactError("artifact exceeds 1 GiB")
+        return self.create_from_chunks(
+            project_id=project_id,
+            operation=operation,
+            filename=filename,
+            media_type=media_type,
+            chunks=(payload,),
+        )
+
+    def create_from_chunks(
+        self,
+        *,
+        project_id: str,
+        operation: str,
+        filename: str,
+        media_type: str,
+        chunks: Iterable[bytes],
+        expected_sha256: str | None = None,
+    ) -> ArtifactRecord:
+        project = require_project_id(project_id)
+        safe_filename = require_filename(filename)
 
         self.ensure_ready()
         artifact_id = f"art_{uuid.uuid4().hex}"
@@ -97,15 +114,30 @@ class ArtifactStore:
         temporary_directory = Path(tempfile.mkdtemp(prefix=".pending-", dir=self.artifacts_root))
         try:
             content_path = temporary_directory / safe_filename
-            content_path.write_bytes(payload)
+            size = 0
+            digest = hashlib.sha256()
+            with content_path.open("xb") as destination:
+                for chunk in chunks:
+                    if not chunk:
+                        continue
+                    size += len(chunk)
+                    if size > MAX_ARTIFACT_BYTES:
+                        raise ArtifactError("artifact exceeds 1 GiB")
+                    destination.write(chunk)
+                    digest.update(chunk)
+            if size == 0:
+                raise ArtifactError("artifact payload is empty")
+            sha256 = digest.hexdigest()
+            if expected_sha256 is not None and sha256 != expected_sha256:
+                raise ArtifactError("artifact SHA-256 does not match expected_sha256")
             record = ArtifactRecord(
                 artifact_id=artifact_id,
                 project_id=project,
                 operation=operation,
                 filename=safe_filename,
                 media_type=media_type,
-                size=len(payload),
-                sha256=hashlib.sha256(payload).hexdigest(),
+                size=size,
+                sha256=sha256,
                 created_at=datetime.now(UTC).isoformat(),
             )
             (temporary_directory / "metadata.json").write_text(

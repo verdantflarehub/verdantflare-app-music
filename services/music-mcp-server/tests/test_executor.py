@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import tempfile
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import httpx
 
-from verdantflare_music_mcp.artifacts import ArtifactStore
+from verdantflare_music_mcp.artifacts import ArtifactError, ArtifactStore, MAX_ARTIFACT_BYTES
 from verdantflare_music_mcp.executor import ExecutionError, MusicExecutor, ServiceURLs, extract_expected_zip
 
 
@@ -32,6 +33,73 @@ def zip_bytes(files: dict[str, bytes]) -> bytes:
 
 
 class ExecutorTest(unittest.TestCase):
+    def test_import_asset_downloads_allowlisted_s3_object_and_verifies_integrity(self) -> None:
+        payload = b"customer-audio"
+        requested_urls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requested_urls.append(str(request.url))
+            return httpx.Response(200, content=payload, headers={"Content-Length": str(len(payload))})
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(Path(directory))
+            executor = MusicExecutor(
+                store,
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
+                frozenset({"https://cache.ali.wodcloud.com"}),
+            )
+            records = executor.import_asset(
+                project_id="mengsk-cover",
+                source_url="https://cache.ali.wodcloud.com/vscode/customer/source.mp3?signature=redacted",
+                filename="source.mp3",
+                expected_sha256=hashlib.sha256(payload).hexdigest(),
+            )
+            self.assertEqual(len(requested_urls), 1)
+            self.assertEqual(records[0].operation, "asset.import")
+            self.assertEqual(records[0].media_type, "audio/mpeg")
+            self.assertEqual(store.read(records[0].artifact_id, "mengsk-cover")[1], payload)
+
+    def test_import_asset_rejects_untrusted_origin_redirect_size_and_hash(self) -> None:
+        payload = b"customer-audio"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("redirect.mp3"):
+                return httpx.Response(302, headers={"Location": "https://evil.example/source.mp3"})
+            if request.url.path.endswith("large.mp3"):
+                return httpx.Response(200, content=b"x", headers={"Content-Length": str(MAX_ARTIFACT_BYTES + 1)})
+            return httpx.Response(200, content=payload)
+
+        with tempfile.TemporaryDirectory() as directory:
+            executor = MusicExecutor(
+                ArtifactStore(Path(directory)),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
+                frozenset({"https://cache.ali.wodcloud.com"}),
+            )
+            arguments = {
+                "project_id": "mengsk-cover",
+                "filename": "source.mp3",
+                "expected_sha256": hashlib.sha256(payload).hexdigest(),
+            }
+            with self.assertRaisesRegex(ValueError, "origin is not allowed"):
+                executor.import_asset(source_url="https://evil.example/source.mp3", **arguments)
+            with self.assertRaisesRegex(ExecutionError, "HTTP 302"):
+                executor.import_asset(
+                    source_url="https://cache.ali.wodcloud.com/vscode/customer/redirect.mp3",
+                    **arguments,
+                )
+            with self.assertRaisesRegex(ExecutionError, "between 1 byte and 1 GiB"):
+                executor.import_asset(
+                    source_url="https://cache.ali.wodcloud.com/vscode/customer/large.mp3",
+                    **arguments,
+                )
+            with self.assertRaisesRegex(ArtifactError, "SHA-256"):
+                executor.import_asset(
+                    source_url="https://cache.ali.wodcloud.com/vscode/customer/source.mp3",
+                    **(arguments | {"expected_sha256": "0" * 64}),
+                )
+
     def test_generate_calls_music3_and_persists_exact_duration(self) -> None:
         requests: list[dict[str, object]] = []
 
