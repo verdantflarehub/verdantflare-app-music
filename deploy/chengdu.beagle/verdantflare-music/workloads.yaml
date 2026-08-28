@@ -329,9 +329,11 @@ spec:
         kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.1.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.2.0
           imagePullPolicy: IfNotPresent
           env:
+            - name: MUSIC_ARTIFACT_ROOT
+              value: /data/projects
             - name: MUSIC3_URL
               value: http://music-minimax-music3-api:8000
             - name: UVR5_URL
@@ -350,6 +352,9 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
+          volumeMounts:
+            - name: projects
+              mountPath: /data/projects
           readinessProbe:
             httpGet:
               path: /health
@@ -363,3 +368,7 @@ spec:
             failureThreshold: 3
             periodSeconds: 30
             timeoutSeconds: 5
+      volumes:
+        - name: projects
+          persistentVolumeClaim:
+            claimName: music-projects

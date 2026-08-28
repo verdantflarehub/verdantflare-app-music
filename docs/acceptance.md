@@ -1,6 +1,6 @@
 # 端到端验收（草案）
 
-`scripts/acceptance-music-workflow.sh` 是对应 `verdantflare_music.md` 输入输出的 HTTP-first 验收入口。它不经过 MCP 资源句柄，因为 Station Bridge 尚未提供已定稿的资源解析接口；服务 HTTP 契约和业务 Artifact 可先独立实测。
+`scripts/acceptance-music-workflow.sh` 是对应 `verdantflare_music.md` 输入输出的下游 HTTP API 诊断入口，用于独立定位 Music3、UVR5、RVC 和 Mixer。正式制作流程通过 Music MCP Server 的可执行 v1 工具传递项目 Artifact ID；两条路径使用相同的真实模型与音频输出，均不能替代人工音质审核。
 
 必需输入：
 
