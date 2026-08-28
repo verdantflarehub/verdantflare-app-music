@@ -100,7 +100,7 @@ class ExecutorTest(unittest.TestCase):
                     **(arguments | {"expected_sha256": "0" * 64}),
                 )
 
-    def test_generate_calls_music3_and_persists_exact_duration(self) -> None:
+    def test_generate_calls_music3_and_preserves_natural_duration(self) -> None:
         requests: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -117,18 +117,15 @@ class ExecutorTest(unittest.TestCase):
                 instructions="restrained chamber soul",
                 candidate_number=1,
                 seed=7,
-                duration_seconds=90,
+                max_duration_seconds=90,
             )
             self.assertEqual(requests[0]["max_new_tokens"], 2250)
-            self.assertEqual(
-                [record.filename for record in records],
-                ["Demo_Candidate_1.generated.wav", "Demo_Candidate_1.wav"],
-            )
-            _, exact = store.read(records[1].artifact_id, "mengsk-error")
-            with wave.open(io.BytesIO(exact), "rb") as audio:
-                self.assertEqual(audio.getnframes(), 90 * 32000)
+            self.assertEqual([record.filename for record in records], ["Demo_Candidate_1.wav"])
+            _, candidate = store.read(records[0].artifact_id, "mengsk-error")
+            with wave.open(io.BytesIO(candidate), "rb") as audio:
+                self.assertEqual(audio.getnframes(), round(90.25 * 32000))
 
-    def test_generate_rejects_early_music3_output(self) -> None:
+    def test_generate_accepts_early_natural_music3_output(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, content=wav_bytes(89.5))
 
@@ -138,14 +135,36 @@ class ExecutorTest(unittest.TestCase):
                 ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler)),
             )
-            with self.assertRaisesRegex(ExecutionError, "ended before"):
+            records = executor.generate(
+                project_id="mengsk-error",
+                lyrics="lyrics",
+                instructions="instructions",
+                candidate_number=1,
+                seed=7,
+                max_duration_seconds=90,
+            )
+            _, candidate = executor.store.read(records[0].artifact_id, "mengsk-error")
+            with wave.open(io.BytesIO(candidate), "rb") as audio:
+                self.assertEqual(audio.getnframes(), round(89.5 * 32000))
+
+    def test_generate_rejects_invalid_music3_wav(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"not-a-wav")
+
+        with tempfile.TemporaryDirectory() as directory:
+            executor = MusicExecutor(
+                ArtifactStore(Path(directory)),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                httpx.Client(transport=httpx.MockTransport(handler)),
+            )
+            with self.assertRaisesRegex(ExecutionError, "invalid WAV"):
                 executor.generate(
                     project_id="mengsk-error",
                     lyrics="lyrics",
                     instructions="instructions",
                     candidate_number=1,
                     seed=7,
-                    duration_seconds=90,
+                    max_duration_seconds=90,
                 )
 
     def test_zip_requires_exact_safe_members(self) -> None:

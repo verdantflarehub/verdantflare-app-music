@@ -34,7 +34,7 @@ class ServerTest(unittest.TestCase):
                     "instructions",
                     "candidate_number",
                     "seed",
-                    "duration_seconds",
+                    "max_duration_seconds",
                 },
                 "stems.separate": {"project_id", "audio_asset_id"},
                 "voice.train": {"project_id", "audio_asset_id", "model_id", "epochs", "batch_size"},
@@ -88,7 +88,7 @@ class ServerTest(unittest.TestCase):
                             "instructions": "instructions",
                             "candidate_number": 1,
                             "seed": 7,
-                            "duration_seconds": 90,
+                            "max_duration_seconds": 90,
                         },
                     )
                 )

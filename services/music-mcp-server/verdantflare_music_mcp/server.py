@@ -46,16 +46,16 @@ def music_generate(
     instructions: str,
     candidate_number: int,
     seed: int = 7,
-    duration_seconds: float = 200.0,
+    max_duration_seconds: float = 200.0,
 ) -> types.CallToolResult:
-    """Generate one approved Music3 candidate and return persisted raw and exact-duration WAV artifacts."""
+    """Generate one approved Music3 candidate and preserve its natural ending within the duration cap."""
     records = executor.generate(
         project_id=project_id,
         lyrics=lyrics,
         instructions=instructions,
         candidate_number=candidate_number,
         seed=seed,
-        duration_seconds=duration_seconds,
+        max_duration_seconds=max_duration_seconds,
     )
     return artifact_result(store, project_id, "music.generate", records)
 

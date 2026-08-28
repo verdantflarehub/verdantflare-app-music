@@ -3,7 +3,7 @@ FROM docker.io/library/python:3.11.10-slim
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music MCP Server"
-LABEL org.opencontainers.image.version="0.3.0"
+LABEL org.opencontainers.image.version="0.4.0"
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" -r requirements.txt \

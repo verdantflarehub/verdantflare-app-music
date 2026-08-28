@@ -1,13 +1,13 @@
 # Music MCP Server
 
-Music MCP Server v0.3.0 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC 和 Mixer API，并把结果持久化为项目范围的 Artifact。
+Music MCP Server v0.4.0 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC 和 Mixer API，并把结果持久化为项目范围的 Artifact。
 
 ## 工具
 
 | 工具 | 输入 | 输出 |
 | --- | --- | --- |
 | `asset.import` | `project_id`、S3 对象 URL、文件名、SHA-256 | 项目范围的源音频 Artifact |
-| `music.generate` | `project_id`、歌词、音乐描述、候选编号、seed、精确秒数 | 原始 Music3 WAV、精确时长 WAV |
+| `music.generate` | `project_id`、歌词、音乐描述、候选编号、seed、最大生成秒数 | 自然结束的 Music3 候选 WAV |
 | `stems.separate` | `project_id`、音频 Artifact ID | 伴奏 WAV、原始干声 WAV |
 | `voice.train` | `project_id`、录音 Artifact ID、模型 ID、epochs、batch size | RVC `.pth`、`.index`、验证 WAV |
 | `voice.convert` | `project_id`、干声 Artifact ID、模型 ID、变调半音数 | 克隆干声 WAV |
@@ -21,9 +21,9 @@ Artifact 只允许在创建它的 `project_id` 下作为后续工具输入。内
 GET /artifacts/{artifact_id}/content
 ```
 
-## 精确时长
+## 自然时长
 
-`music.generate` 按 Music3 的 25 token/s 向上计算 `max_new_tokens`。例如 90 秒请求使用 2250 tokens。服务同时保留 Music3 原始 WAV，并按 WAV 采样帧裁剪精确版本；若模型输出不足请求时长，调用失败，不用静音补齐。
+`music.generate` 的 `max_duration_seconds` 是生成上限，不是目标时长。服务按 Music3 的 25 token/s 向上计算 `max_new_tokens`，例如 90 秒上限使用 2250 tokens。模型发出音频结束标记时，服务验证并原样保存自然结束的 PCM WAV；不要求音频填满上限，不裁切，不补静音，也不额外生成 `.generated.wav`。
 
 ## 配置
 
@@ -42,7 +42,7 @@ Token 只能通过运行环境注入，不得写入镜像、清单或仓库。
 
 ## 成都集群验证
 
-镜像 `music-mcp-server-v0.3.0` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
+镜像 `music-mcp-server-v0.4.0` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
 
 ```bash
 kubectl --context chengdu.beagle -n verdantflare-music \

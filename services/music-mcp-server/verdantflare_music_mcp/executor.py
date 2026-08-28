@@ -128,28 +128,15 @@ class ServiceURLs:
         )
 
 
-def trim_pcm_wav(payload: bytes, duration_seconds: float) -> bytes:
-    if not 1.0 <= duration_seconds <= 300.0:
-        raise ValueError("duration_seconds must be between 1 and 300")
+def validate_pcm_wav(payload: bytes) -> None:
     try:
         with wave.open(io.BytesIO(payload), "rb") as source:
             if source.getcomptype() != "NONE":
                 raise ExecutionError("Music3 returned a compressed WAV")
-            target_frames = round(duration_seconds * source.getframerate())
-            if source.getnframes() < target_frames:
-                raise ExecutionError("Music3 ended before the requested exact duration")
-            parameters = source.getparams()
-            frames = source.readframes(target_frames)
+            if source.getframerate() <= 0 or source.getnframes() <= 0:
+                raise ExecutionError("Music3 returned an empty WAV")
     except (EOFError, wave.Error) as error:
         raise ExecutionError("Music3 returned an invalid WAV") from error
-
-    output = io.BytesIO()
-    with wave.open(output, "wb") as destination:
-        destination.setnchannels(parameters.nchannels)
-        destination.setsampwidth(parameters.sampwidth)
-        destination.setframerate(parameters.framerate)
-        destination.writeframes(frames)
-    return output.getvalue()
 
 
 def extract_expected_zip(payload: bytes, expected: dict[str, str]) -> dict[str, bytes]:
@@ -256,7 +243,7 @@ class MusicExecutor:
         instructions: str,
         candidate_number: int,
         seed: int,
-        duration_seconds: float,
+        max_duration_seconds: float,
     ) -> list[ArtifactRecord]:
         project = require_project_id(project_id)
         if not lyrics.strip() or not instructions.strip():
@@ -265,10 +252,10 @@ class MusicExecutor:
             raise ValueError("candidate_number must be between 1 and 99")
         if not 0 <= seed <= 2_147_483_647:
             raise ValueError("seed must be between 0 and 2147483647")
-        if not 1.0 <= duration_seconds <= 300.0:
-            raise ValueError("duration_seconds must be between 1 and 300")
+        if not 1.0 <= max_duration_seconds <= 300.0:
+            raise ValueError("max_duration_seconds must be between 1 and 300")
 
-        max_new_tokens = math.ceil(duration_seconds * 25)
+        max_new_tokens = math.ceil(max_duration_seconds * 25)
         raw = self._post(
             "Music3",
             f"{self.service_urls.music3}/v1/audio/speech",
@@ -282,23 +269,15 @@ class MusicExecutor:
                 "stream": False,
             },
         )
-        exact = trim_pcm_wav(raw, duration_seconds)
-        prefix = f"Demo_Candidate_{candidate_number}"
+        validate_pcm_wav(raw)
         return [
             self.store.create(
                 project_id=project,
                 operation="music.generate",
-                filename=f"{prefix}.generated.wav",
+                filename=f"Demo_Candidate_{candidate_number}.wav",
                 media_type="audio/wav",
                 payload=raw,
-            ),
-            self.store.create(
-                project_id=project,
-                operation="music.generate",
-                filename=f"{prefix}.wav",
-                media_type="audio/wav",
-                payload=exact,
-            ),
+            )
         ]
 
     def separate_stems(self, *, project_id: str, audio_asset_id: str) -> list[ArtifactRecord]:
