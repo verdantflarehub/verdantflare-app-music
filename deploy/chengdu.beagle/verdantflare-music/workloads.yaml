@@ -419,7 +419,7 @@ spec:
         kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.5.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.5.1
           imagePullPolicy: IfNotPresent
           env:
             - name: MUSIC_ARTIFACT_ROOT

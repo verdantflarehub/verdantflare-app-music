@@ -389,17 +389,40 @@ class MusicExecutor:
         audio_asset_id: str,
         model_id: str,
         pitch_shift: int,
+        f0_method: str = "rmvpe",
+        index_rate: float = 0.66,
+        filter_radius: int = 3,
+        rms_mix_rate: float = 1.0,
+        protect: float = 0.33,
     ) -> list[ArtifactRecord]:
         project = require_project_id(project_id)
         model = require_model_id(model_id)
         if not -24 <= pitch_shift <= 24:
             raise ValueError("pitch_shift must be between -24 and 24")
+        if f0_method not in {"rmvpe", "harvest", "pm", "crepe"}:
+            raise ValueError("f0_method must be rmvpe, harvest, pm, or crepe")
+        if not 0.0 <= index_rate <= 1.0:
+            raise ValueError("index_rate must be between 0 and 1")
+        if not 0 <= filter_radius <= 7:
+            raise ValueError("filter_radius must be between 0 and 7")
+        if not 0.0 <= rms_mix_rate <= 1.0:
+            raise ValueError("rms_mix_rate must be between 0 and 1")
+        if not 0.0 <= protect <= 0.5:
+            raise ValueError("protect must be between 0 and 0.5")
         source, audio = self.store.read(audio_asset_id, project)
         converted = self._post(
             "RVC",
             f"{self.service_urls.rvc}/v1/audio/voice-conversions",
             files={"audio": (source.filename, audio, source.media_type)},
-            data={"model_id": model, "pitch_shift": str(pitch_shift), "f0_method": "rmvpe"},
+            data={
+                "model_id": model,
+                "pitch_shift": str(pitch_shift),
+                "f0_method": f0_method,
+                "index_rate": str(index_rate),
+                "filter_radius": str(filter_radius),
+                "rms_mix_rate": str(rms_mix_rate),
+                "protect": str(protect),
+            },
         )
         return [
             self.store.create(

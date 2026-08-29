@@ -46,7 +46,17 @@ class ServerTest(unittest.TestCase):
                 },
                 "stems.separate": {"project_id", "audio_asset_id"},
                 "voice.train": {"project_id", "audio_asset_id", "model_id", "epochs", "batch_size"},
-                "voice.convert": {"project_id", "audio_asset_id", "model_id", "pitch_shift"},
+                "voice.convert": {
+                    "project_id",
+                    "audio_asset_id",
+                    "model_id",
+                    "pitch_shift",
+                    "f0_method",
+                    "index_rate",
+                    "filter_radius",
+                    "rms_mix_rate",
+                    "protect",
+                },
                 "lyrics.align": {"project_id", "vocal_asset_id", "lyrics", "language"},
                 "mix.master": {
                     "project_id",

@@ -1,6 +1,6 @@
 # Music MCP Server
 
-Music MCP Server v0.5.0 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐和 Mixer API，并把结果持久化为项目范围的 Artifact。
+Music MCP Server v0.5.1 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐和 Mixer API，并把结果持久化为项目范围的 Artifact。
 
 ## 工具
 
@@ -10,7 +10,7 @@ Music MCP Server v0.5.0 是音乐制作服务的可执行 MCP 边界。Streamabl
 | `music.generate` | `project_id`、歌词、音乐描述、候选编号、seed、最大生成秒数 | 自然结束的 Music3 候选 WAV |
 | `stems.separate` | `project_id`、音频 Artifact ID | 伴奏 WAV、原始干声 WAV |
 | `voice.train` | `project_id`、录音 Artifact ID、模型 ID、epochs、batch size | RVC `.pth`、`.index`、验证 WAV |
-| `voice.convert` | `project_id`、干声 Artifact ID、模型 ID、变调半音数 | 克隆干声 WAV |
+| `voice.convert` | `project_id`、干声 Artifact ID、模型 ID、变调半音数、F0 方法、检索率、滤波半径、响度包络混合率、清辅音保护值 | 克隆干声 WAV |
 | `lyrics.align` | `project_id`、人声 Artifact ID、已批准逐行歌词、语言 | 强制对齐的 UTF-8 LRC |
 | `mix.master` | `project_id`、伴奏与人声 Artifact ID、LRC 文本、BPM | 母带 WAV、MP3、LRC |
 
@@ -44,7 +44,7 @@ Token 只能通过运行环境注入，不得写入镜像、清单或仓库。
 
 ## 成都集群验证
 
-镜像 `music-mcp-server-v0.5.0` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
+镜像 `music-mcp-server-v0.5.1` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
 
 ```bash
 kubectl --context chengdu.beagle -n verdantflare-music \

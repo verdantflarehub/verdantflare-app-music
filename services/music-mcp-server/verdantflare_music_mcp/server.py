@@ -92,13 +92,23 @@ def voice_convert(
     audio_asset_id: str,
     model_id: str,
     pitch_shift: int = 0,
+    f0_method: str = "rmvpe",
+    index_rate: float = 0.66,
+    filter_radius: int = 3,
+    rms_mix_rate: float = 1.0,
+    protect: float = 0.33,
 ) -> types.CallToolResult:
-    """Convert a dry vocal artifact with an installed approved RVC model."""
+    """Convert a dry vocal artifact with an installed approved RVC model and explicit quality controls."""
     records = executor.convert_voice(
         project_id=project_id,
         audio_asset_id=audio_asset_id,
         model_id=model_id,
         pitch_shift=pitch_shift,
+        f0_method=f0_method,
+        index_rate=index_rate,
+        filter_radius=filter_radius,
+        rms_mix_rate=rms_mix_rate,
+        protect=protect,
     )
     return artifact_result(store, project_id, "voice.convert", records)
 

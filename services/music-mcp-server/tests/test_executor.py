@@ -211,6 +211,9 @@ class ExecutorTest(unittest.TestCase):
                     ),
                 )
             if request.url.path == "/v1/audio/voice-conversions":
+                body = request.content.decode("latin1")
+                for expected in ("rmvpe", "0.3", "3", "0.75", "0.2"):
+                    self.assertIn(expected, body)
                 return httpx.Response(200, content=b"cloned-vocal")
             if request.url.path == "/v1/lyrics/alignments":
                 return httpx.Response(200, content="[00:01.000]第一句\n".encode())
@@ -247,6 +250,10 @@ class ExecutorTest(unittest.TestCase):
                 audio_asset_id=stems[1].artifact_id,
                 model_id="mengsk-demo-v1",
                 pitch_shift=0,
+                index_rate=0.3,
+                filter_radius=3,
+                rms_mix_rate=0.75,
+                protect=0.2,
             )
             aligned = executor.align_lyrics(
                 project_id="mengsk-error",
