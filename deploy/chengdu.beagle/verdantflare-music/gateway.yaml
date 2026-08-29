@@ -1,0 +1,68 @@
+apiVersion: bcc.bd-apaas.com/v1alpha1
+kind: IngressHost
+metadata:
+  name: music-mcp
+spec:
+  host: mcp.cn-chengdu.bc-cloud.com
+---
+apiVersion: bcc.bd-apaas.com/v1alpha1
+kind: Middleware
+metadata:
+  name: music-mcp-path
+spec:
+  replacePath:
+    path: /mcp
+---
+apiVersion: bcc.bd-apaas.com/v1alpha1
+kind: Middleware
+metadata:
+  name: music-mcp-artifacts-prefix
+spec:
+  stripPrefix:
+    prefixes:
+      - /music
+---
+apiVersion: bcc.bd-apaas.com/v1alpha1
+kind: Middleware
+metadata:
+  name: music-mcp-security-headers
+spec:
+  headers:
+    allowedHosts:
+      - mcp.cn-chengdu.bc-cloud.com
+    contentTypeNosniff: true
+    forceSTSHeader: true
+    stsSeconds: 31536000
+---
+apiVersion: bcc.bd-apaas.com/v1alpha1
+kind: IngressRoute
+metadata:
+  name: music-mcp
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`mcp.cn-chengdu.bc-cloud.com`) && (Path(`/music`) || Path(`/music/`))
+      priority: 200
+      middlewares:
+        - name: music-mcp-path
+        - name: music-mcp-security-headers
+      services:
+        - name: music-mcp-server
+          port: 8000
+          responseForwarding:
+            flushInterval: 100ms
+    - kind: Rule
+      match: Host(`mcp.cn-chengdu.bc-cloud.com`) && PathPrefix(`/music/artifacts/`)
+      priority: 300
+      middlewares:
+        - name: music-mcp-artifacts-prefix
+        - name: music-mcp-security-headers
+      services:
+        - name: music-mcp-server
+          port: 8000
+          responseForwarding:
+            flushInterval: 100ms
+  tls:
+    certResolver: default

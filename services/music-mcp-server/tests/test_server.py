@@ -6,17 +6,68 @@ from pathlib import Path
 from unittest import mock
 
 from mcp import types
+from mcp.server.transport_security import TransportSecurityMiddleware
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from verdantflare_music_mcp.artifacts import ArtifactStore
 from verdantflare_music_mcp.results import artifact_result
 from verdantflare_music_mcp import server
-from verdantflare_music_mcp.server import BearerAuthMiddleware, artifact_content, mcp
+from verdantflare_music_mcp.server import (
+    BearerAuthMiddleware,
+    artifact_content,
+    mcp,
+    transport_security_from_environment,
+)
 
 
 class ServerTest(unittest.TestCase):
+    def test_transport_security_defaults_to_loopback(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            settings = transport_security_from_environment()
+
+        self.assertTrue(settings.enable_dns_rebinding_protection)
+        self.assertEqual(settings.allowed_hosts, ["127.0.0.1:*", "localhost:*", "[::1]:*"])
+        self.assertEqual(
+            settings.allowed_origins,
+            ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        )
+
+    def test_transport_security_uses_explicit_public_allowlist(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "MUSIC_MCP_ALLOWED_HOSTS": "mcp.example.com, 127.0.0.1:*",
+                "MUSIC_MCP_ALLOWED_ORIGINS": "https://mcp.example.com",
+            },
+            clear=True,
+        ):
+            settings = transport_security_from_environment()
+
+        self.assertEqual(settings.allowed_hosts, ["mcp.example.com", "127.0.0.1:*"])
+        self.assertEqual(settings.allowed_origins, ["https://mcp.example.com"])
+
+        middleware = TransportSecurityMiddleware(settings)
+
+        async def validate(host: str):
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "path": "/mcp",
+                    "headers": [
+                        (b"host", host.encode()),
+                        (b"content-type", b"application/json"),
+                    ],
+                }
+            )
+            return await middleware.validate_request(request, is_post=True)
+
+        self.assertIsNone(asyncio.run(validate("mcp.example.com")))
+        self.assertEqual(asyncio.run(validate("untrusted.example.com")).status_code, 421)
+
     def test_tools_expose_executable_contract(self) -> None:
         tools = asyncio.run(mcp.list_tools())
         self.assertEqual(

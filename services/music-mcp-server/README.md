@@ -1,6 +1,6 @@
 # Music MCP Server
 
-Music MCP Server v0.5.1 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐和 Mixer API，并把结果持久化为项目范围的 Artifact。
+Music MCP Server v0.5.2 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐和 Mixer API，并把结果持久化为项目范围的 Artifact。
 
 ## 工具
 
@@ -34,6 +34,8 @@ GET /artifacts/{artifact_id}/content
 | `MUSIC_ASSET_IMPORT_ORIGINS` | 未设置 | 允许导入的逗号分隔 HTTPS S3/CDN origin；未设置时禁用导入 |
 | `MUSIC_MCP_PUBLIC_BASE_URL` | 未设置 | Artifact 绝对下载地址前缀 |
 | `MUSIC_MCP_BEARER_TOKEN` | 未设置 | 可选 Bearer 鉴权；启用后保护 MCP 和 Artifact，`/health` 除外 |
+| `MUSIC_MCP_ALLOWED_HOSTS` | loopback host | MCP DNS rebinding 防护允许的逗号分隔 Host；公网部署必须显式配置 |
+| `MUSIC_MCP_ALLOWED_ORIGINS` | loopback origin | MCP DNS rebinding 防护允许的逗号分隔 Origin；无 Origin 的非浏览器客户端不受影响 |
 | `MUSIC3_URL` | `http://music-minimax-music3-api:8000` | Music3 API |
 | `UVR5_URL` | `http://music-uvr5-api:8000` | UVR5 API |
 | `RVC_URL` | `http://music-rvc-api:8000` | RVC API |
@@ -44,7 +46,7 @@ Token 只能通过运行环境注入，不得写入镜像、清单或仓库。
 
 ## 成都集群验证
 
-镜像 `music-mcp-server-v0.5.1` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
+镜像 `music-mcp-server-v0.5.2` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
 
 ```bash
 kubectl --context chengdu.beagle -n verdantflare-music \
@@ -54,3 +56,19 @@ codex mcp add verdantflare-music --url http://127.0.0.1:8005/mcp
 ```
 
 注册后新开 Codex 会话加载工具。可先用 `GET http://127.0.0.1:8005/health` 检查服务；未配置 Bearer 时不需要凭据。项目资产保存在 `music-projects` 的 `hostpath` PVC 中，删除 PVC 前必须确认保留策略。
+
+### 公网 MCP
+
+成都验证环境通过 BCC `IngressRoute` 将公网 `POST https://mcp.cn-chengdu.bc-cloud.com/music` 重写到服务的 `/mcp`，并将 `/music/artifacts/` 转发到受保护的 Artifact 下载接口。公网不路由 `/health`。
+
+部署前必须在 `verdantflare-music` namespace 创建 `music-mcp-auth` Secret，其中只包含 `MUSIC_MCP_BEARER_TOKEN`；Token 使用安全随机值生成，不得写入清单、Git 或终端记录。Deployment 同时配置公网 Host 与 Origin allowlist，保留 MCP SDK 的 DNS rebinding 防护。
+
+客户端进程从安全环境注入同一个 Token，然后注册公网 MCP：
+
+```bash
+codex mcp add verdantflare-music \
+  --url https://mcp.cn-chengdu.bc-cloud.com/music \
+  --bearer-token-env-var MUSIC_MCP_BEARER_TOKEN
+```
+
+注册后新开 Codex 会话。未带 Token 的 MCP 与 Artifact 请求必须返回 `401`，允许的公网 Host 必须完成 MCP 初始化，其他 Host 必须由 transport security 拒绝。

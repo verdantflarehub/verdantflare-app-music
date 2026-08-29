@@ -6,7 +6,7 @@ resources:
   - storage.yaml
   - services.yaml
   - workloads.yaml
+  - gateway.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: verdantflare-music
-

@@ -6,6 +6,7 @@ import os
 
 from mcp import types
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -20,6 +21,25 @@ from .results import artifact_result
 store = ArtifactStore.from_environment()
 executor = MusicExecutor(store, ServiceURLs.from_environment())
 mcp = MCPServer("VerdantFlare Music")
+
+
+def _csv_environment(name: str, defaults: list[str]) -> list[str]:
+    configured = [value.strip() for value in os.environ.get(name, "").split(",") if value.strip()]
+    return configured or defaults
+
+
+def transport_security_from_environment() -> TransportSecuritySettings:
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_csv_environment(
+            "MUSIC_MCP_ALLOWED_HOSTS",
+            ["127.0.0.1:*", "localhost:*", "[::1]:*"],
+        ),
+        allowed_origins=_csv_environment(
+            "MUSIC_MCP_ALLOWED_ORIGINS",
+            ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        ),
+    )
 
 
 @mcp.tool(name="asset.import")
@@ -194,7 +214,14 @@ app = Starlette(
     routes=[
         Route("/health", health),
         Route("/artifacts/{artifact_id:str}/content", artifact_content),
-        Mount("/", app=mcp.streamable_http_app(json_response=True, stateless_http=True)),
+        Mount(
+            "/",
+            app=mcp.streamable_http_app(
+                json_response=True,
+                stateless_http=True,
+                transport_security=transport_security_from_environment(),
+            ),
+        ),
     ],
     lifespan=lifespan,
 )
