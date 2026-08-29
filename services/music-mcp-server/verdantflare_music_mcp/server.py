@@ -103,6 +103,23 @@ def voice_convert(
     return artifact_result(store, project_id, "voice.convert", records)
 
 
+@mcp.tool(name="lyrics.align")
+def lyrics_align(
+    project_id: str,
+    vocal_asset_id: str,
+    lyrics: str,
+    language: str = "zh",
+) -> types.CallToolResult:
+    """Force-align approved lyric lines to a persisted project vocal artifact."""
+    records = executor.align_lyrics(
+        project_id=project_id,
+        vocal_asset_id=vocal_asset_id,
+        lyrics=lyrics,
+        language=language,
+    )
+    return artifact_result(store, project_id, "lyrics.align", records)
+
+
 @mcp.tool(name="mix.master")
 def mix_master(
     project_id: str,

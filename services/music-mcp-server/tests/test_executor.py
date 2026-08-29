@@ -10,7 +10,13 @@ from pathlib import Path
 import httpx
 
 from verdantflare_music_mcp.artifacts import ArtifactError, ArtifactStore, MAX_ARTIFACT_BYTES
-from verdantflare_music_mcp.executor import ExecutionError, MusicExecutor, ServiceURLs, extract_expected_zip
+from verdantflare_music_mcp.executor import (
+    ExecutionError,
+    MusicExecutor,
+    ServiceURLs,
+    extract_expected_zip,
+    validate_aligned_lrc,
+)
 
 
 def wav_bytes(seconds: float, sample_rate: int = 32000) -> bytes:
@@ -45,7 +51,7 @@ class ExecutorTest(unittest.TestCase):
             store = ArtifactStore(Path(directory))
             executor = MusicExecutor(
                 store,
-                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
                 frozenset({"https://cache.ali.wodcloud.com"}),
             )
@@ -73,7 +79,7 @@ class ExecutorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             executor = MusicExecutor(
                 ArtifactStore(Path(directory)),
-                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False),
                 frozenset({"https://cache.ali.wodcloud.com"}),
             )
@@ -110,7 +116,11 @@ class ExecutorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = ArtifactStore(Path(directory), "https://music.example")
             client = httpx.Client(transport=httpx.MockTransport(handler))
-            executor = MusicExecutor(store, ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"), client)
+            executor = MusicExecutor(
+                store,
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
+                client,
+            )
             records = executor.generate(
                 project_id="mengsk-error",
                 lyrics="[Verse]\nline",
@@ -132,7 +142,7 @@ class ExecutorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             executor = MusicExecutor(
                 ArtifactStore(Path(directory)),
-                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler)),
             )
             records = executor.generate(
@@ -154,7 +164,7 @@ class ExecutorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             executor = MusicExecutor(
                 ArtifactStore(Path(directory)),
-                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler)),
             )
             with self.assertRaisesRegex(ExecutionError, "invalid WAV"):
@@ -202,6 +212,8 @@ class ExecutorTest(unittest.TestCase):
                 )
             if request.url.path == "/v1/audio/voice-conversions":
                 return httpx.Response(200, content=b"cloned-vocal")
+            if request.url.path == "/v1/lyrics/alignments":
+                return httpx.Response(200, content="[00:01.000]第一句\n".encode())
             if request.url.path == "/v1/audio/masters":
                 return httpx.Response(
                     200,
@@ -226,7 +238,7 @@ class ExecutorTest(unittest.TestCase):
             )
             executor = MusicExecutor(
                 store,
-                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler)),
             )
             stems = executor.separate_stems(project_id="mengsk-error", audio_asset_id=source.artifact_id)
@@ -236,6 +248,13 @@ class ExecutorTest(unittest.TestCase):
                 model_id="mengsk-demo-v1",
                 pitch_shift=0,
             )
+            aligned = executor.align_lyrics(
+                project_id="mengsk-error",
+                vocal_asset_id=cloned[0].artifact_id,
+                lyrics="第一句",
+                language="zh",
+            )
+            self.assertEqual(store.read(aligned[0].artifact_id, "mengsk-error")[1], "[00:01.000]第一句\n".encode())
             final = executor.master(
                 project_id="mengsk-error",
                 instrumental_asset_id=stems[0].artifact_id,
@@ -272,7 +291,7 @@ class ExecutorTest(unittest.TestCase):
             )
             executor = MusicExecutor(
                 store,
-                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://mix"),
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
                 httpx.Client(transport=httpx.MockTransport(handler)),
             )
             outputs = executor.train_voice(
@@ -284,6 +303,18 @@ class ExecutorTest(unittest.TestCase):
             )
             self.assertEqual(len(outputs), 3)
             self.assertEqual(store.read(outputs[2].artifact_id, "voice-project")[1], b"validation")
+
+    def test_aligned_lrc_must_preserve_lines_and_strict_timestamps(self) -> None:
+        valid = "[00:01.000]第一句\n[00:02.250]第二句\n".encode()
+        self.assertEqual(validate_aligned_lrc(valid, "第一句\n第二句"), valid.decode())
+        invalid = (
+            "[00:01.000]第一句\n".encode(),
+            "[00:01.000]第一句\n[00:01.000]第二句\n".encode(),
+            "[00:01.000]第一句\n[00:02.000]改写\n".encode(),
+        )
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaises(ExecutionError):
+                validate_aligned_lrc(payload, "第一句\n第二句")
 
 
 if __name__ == "__main__":

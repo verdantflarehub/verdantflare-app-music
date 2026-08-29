@@ -1,40 +1,44 @@
-name: Music MCP Server
+name: Music Lyrics Aligner API
 
 on:
   push:
     branches: [release]
     paths:
-      - services/music-mcp-server/**
-      - .github/workflows/music-mcp-server.yml
+      - services/music-lyrics-aligner-api/**
+      - .github/workflows/music-lyrics-aligner-api.yml
+
 permissions:
   contents: read
 concurrency:
-  group: music-mcp-server-release
+  group: music-lyrics-aligner-api-release
   cancel-in-progress: false
 env:
-  SERVICE: music-mcp-server
-  VERSION: 0.5.0
+  SERVICE: music-lyrics-aligner-api
+  VERSION: 0.1.0
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run unit tests
+      - name: Check and test
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: services/music-mcp-server
+          PYTHONPATH: services/music-lyrics-aligner-api
         run: |
-          python3 -m pip install -r services/${SERVICE}/requirements.txt
+          set -euo pipefail
+          shellcheck services/${SERVICE}/*.sh
+          python3 -m pip install fastapi==0.116.1 httpx==0.28.1 python-multipart==0.0.20
           python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
     needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - id: image
+        name: Set image metadata
         env:
           REGISTRY_ENDPOINT: ${{ secrets.REGISTRY_ENDPOINT_ALIYUN }}
         run: |

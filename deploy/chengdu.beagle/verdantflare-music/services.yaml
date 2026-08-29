@@ -37,6 +37,18 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: music-lyrics-aligner-api
+spec:
+  selector:
+    app.kubernetes.io/name: music-lyrics-aligner-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: music-audio-mixer-api
 spec:
   selector:
@@ -57,4 +69,3 @@ spec:
     - name: http
       port: 8000
       targetPort: http
-

@@ -263,6 +263,96 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: music-lyrics-aligner-api
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 1800
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: music-lyrics-aligner-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-lyrics-aligner-api
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.7
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-GeForce-RTX-4090
+                  - key: nvidia.com/gpu.sharing-strategy
+                    operator: In
+                    values:
+                      - none
+      containers:
+        - name: api
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-lyrics-aligner-api-v0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LYRICS_ALIGNER_MODEL_ROOT
+              value: /models/whisper
+            - name: LYRICS_ALIGNER_MODEL
+              value: small
+            - name: LYRICS_ALIGNER_LANGUAGE
+              value: zh
+            - name: LYRICS_ALIGNER_TEMP_ROOT
+              value: /tmp/lyrics-aligner
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 120
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 3
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: models
+              mountPath: /models/whisper
+            - name: temporary
+              mountPath: /tmp/lyrics-aligner
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: lyrics-aligner-models
+        - name: temporary
+          emptyDir:
+            sizeLimit: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: music-audio-mixer-api
 spec:
   replicas: 1
@@ -329,7 +419,7 @@ spec:
         kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.4.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.5.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MUSIC_ARTIFACT_ROOT
@@ -342,6 +432,8 @@ spec:
               value: http://music-uvr5-api:8000
             - name: RVC_URL
               value: http://music-rvc-api:8000
+            - name: LYRICS_ALIGNER_URL
+              value: http://music-lyrics-aligner-api:8000
             - name: MIXER_URL
               value: http://music-audio-mixer-api:8000
           ports:

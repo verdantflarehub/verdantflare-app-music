@@ -37,6 +37,7 @@ AUDIO_MEDIA_TYPES = {
     ".opus": "audio/ogg",
     ".wav": "audio/wav",
 }
+LRC_LINE_PATTERN = re.compile(r"^\[(\d{1,3}):(\d{2})\.(\d{3})\](.+)$")
 
 
 def require_model_id(model_id: str) -> str:
@@ -116,6 +117,7 @@ class ServiceURLs:
     music3: str
     uvr5: str
     rvc: str
+    lyrics_aligner: str
     mixer: str
 
     @classmethod
@@ -124,6 +126,9 @@ class ServiceURLs:
             music3=os.environ.get("MUSIC3_URL", "http://music-minimax-music3-api:8000").rstrip("/"),
             uvr5=os.environ.get("UVR5_URL", "http://music-uvr5-api:8000").rstrip("/"),
             rvc=os.environ.get("RVC_URL", "http://music-rvc-api:8000").rstrip("/"),
+            lyrics_aligner=os.environ.get(
+                "LYRICS_ALIGNER_URL", "http://music-lyrics-aligner-api:8000"
+            ).rstrip("/"),
             mixer=os.environ.get("MIXER_URL", "http://music-audio-mixer-api:8000").rstrip("/"),
         )
 
@@ -160,6 +165,35 @@ def extract_expected_zip(payload: bytes, expected: dict[str, str]) -> dict[str, 
             return outputs
     except (ValueError, zipfile.BadZipFile) as error:
         raise ExecutionError("downstream returned an invalid ZIP") from error
+
+
+def validate_aligned_lrc(payload: bytes, lyrics: str) -> str:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ExecutionError("lyrics aligner returned non-UTF-8 text") from error
+    source_lines = [line.strip() for line in lyrics.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    source_lines = [line for line in source_lines if line]
+    output_lines = [line for line in text.splitlines() if line]
+    if len(output_lines) != len(source_lines):
+        raise ExecutionError("lyrics aligner changed the lyric line count")
+
+    timestamps: list[int] = []
+    output_lyrics: list[str] = []
+    for line in output_lines:
+        match = LRC_LINE_PATTERN.fullmatch(line)
+        if match is None:
+            raise ExecutionError("lyrics aligner returned invalid LRC")
+        minutes, seconds, milliseconds, lyric = match.groups()
+        if int(seconds) >= 60:
+            raise ExecutionError("lyrics aligner returned invalid LRC seconds")
+        timestamps.append((int(minutes) * 60 + int(seconds)) * 1000 + int(milliseconds))
+        output_lyrics.append(lyric)
+    if output_lyrics != source_lines:
+        raise ExecutionError("lyrics aligner changed the approved lyrics")
+    if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
+        raise ExecutionError("lyrics aligner returned non-increasing timestamps")
+    return "\n".join(output_lines) + "\n"
 
 
 class MusicExecutor:
@@ -374,6 +408,40 @@ class MusicExecutor:
                 filename="vocal_dry_cloned.wav",
                 media_type="audio/wav",
                 payload=converted,
+            )
+        ]
+
+    def align_lyrics(
+        self,
+        *,
+        project_id: str,
+        vocal_asset_id: str,
+        lyrics: str,
+        language: str,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        if language != "zh":
+            raise ValueError("language must be zh")
+        if not lyrics.strip() or len(lyrics.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("lyrics must contain 1 byte to 1 MiB of UTF-8 text")
+        vocal_record, vocal = self.store.read(vocal_asset_id, project)
+        aligned = self._post(
+            "Lyrics aligner",
+            f"{self.service_urls.lyrics_aligner}/v1/lyrics/alignments",
+            files={
+                "audio": (vocal_record.filename, vocal, vocal_record.media_type),
+                "lyrics": ("lyrics.txt", lyrics.encode("utf-8"), "text/plain; charset=utf-8"),
+            },
+            data={"language": language},
+        )
+        lrc = validate_aligned_lrc(aligned, lyrics)
+        return [
+            self.store.create(
+                project_id=project,
+                operation="lyrics.align",
+                filename="Aligned_Lyrics.lrc",
+                media_type="text/plain",
+                payload=lrc.encode("utf-8"),
             )
         ]
 

@@ -2,7 +2,7 @@
 
 VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作应用套件。它通过版本化的 MCP 工具和内部 HTTP API，提供音乐生成、音轨分离、人声模型训练、音色转换、混音与母带处理能力。
 
-当前已打通 HTTP-first 最小端到端实现：MiniMax Music 3 生成、UVR5 分轨与去混响、RVC v2 训练与转换、混音母带、可执行 MCP 工具及业务交付物验收脚本。GPU 推理质量和 DSP 参数仍需在目标集群以真实音频验收。
+当前已打通 HTTP-first 最小端到端实现：MiniMax Music 3 生成、UVR5 分轨与去混响、RVC v2 训练与转换、已知歌词强制对齐、混音母带、可执行 MCP 工具及业务交付物验收脚本。GPU 推理质量和 DSP 参数仍需在目标集群以真实音频验收。
 
 ## 项目职责
 
@@ -14,6 +14,7 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
 | `music-minimax-music3-api` | 提供 MiniMax Music 3 候选歌曲生成 API。                             |
 | `music-uvr5-api`           | 提供音轨分离、去混响、模型加载和任务状态 API。                      |
 | `music-rvc-api`            | 提供人声模型训练、模型管理和音色转换 API。                          |
+| `music-lyrics-aligner-api` | 将已批准逐行歌词强制对齐到实际演唱干声。                          |
 | `music-audio-mixer-api`    | 提供混音、母带处理、响度标准化和交付格式编码 API。                  |
 
 本仓库不负责 Agent Skill 和 Studio 用户界面：
@@ -29,7 +30,7 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
   -> verdantflare-music Skill
   -> music-mcp-server
   -> approved external S3/CDN asset
-  -> generator / UVR5 / RVC / mixer API
+  -> generator / UVR5 / RVC / lyrics aligner / mixer API
   -> 项目 Artifact
 ```
 
@@ -51,6 +52,7 @@ music.generate
 stems.separate
 voice.train
 voice.convert
+lyrics.align
 mix.master
 ```
 
@@ -73,6 +75,7 @@ mix.master
 │   ├── music-minimax-music3-api/
 │   ├── music-uvr5-api/
 │   ├── music-rvc-api/
+│   ├── music-lyrics-aligner-api/
 │   └── music-audio-mixer-api/
 ├── docs/
 │   └── acceptance.md
@@ -92,13 +95,13 @@ services/<service>/
 
 服务依赖、镜像构建文件和测试保留在各自服务目录内。直接采用成熟上游运行时的 Music3 服务不重复包装 Python 应用；UVR5、RVC 和 Mixer 只包装 VerdantFlare 所需的受控 HTTP 契约。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
 
-`.github/workflows/` 按一个应用一个 YAML 负责测试、构建五个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。`deploy/chengdu.beagle/verdantflare-music/` 保存目标验证集群的声明式 Kubernetes 配置。
+`.github/workflows/` 按一个应用一个 YAML 负责测试、构建六个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。`deploy/chengdu.beagle/verdantflare-music/` 保存目标验证集群的声明式 Kubernetes 配置。
 
 UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用锁定版本的成熟上游实现作为算法依赖，但上游公开的 WebUI、CLI 或容器接口不是 VerdantFlare 的服务契约。
 
 ## 镜像命名
 
-五个服务镜像统一发布到 `verdantflare-app` 镜像仓库，以服务名和语义化版本组成 tag：
+六个服务镜像统一发布到 `verdantflare-app` 镜像仓库，以服务名和语义化版本组成 tag：
 
 | 服务                       | 镜像 tag 格式                     |
 | -------------------------- | --------------------------------- |
@@ -106,6 +109,7 @@ UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用�
 | `music-minimax-music3-api` | `music-minimax-music3-api-vx.x.x` |
 | `music-uvr5-api`           | `music-uvr5-api-vx.x.x`           |
 | `music-rvc-api`            | `music-rvc-api-vx.x.x`            |
+| `music-lyrics-aligner-api` | `music-lyrics-aligner-api-vx.x.x` |
 | `music-audio-mixer-api`    | `music-audio-mixer-api-vx.x.x`    |
 
 例如，MiniMax Music 3 API 的 `0.1.1` 版本使用：
@@ -128,7 +132,9 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 `music-uvr5-api` 使用锁定的 `audio-separator`、MelBand RoFormer 和独立去混响模型，返回 24-bit/48 kHz 的 `instrumental.wav` 与 `vocal_dry_original.wav`。`music-audio-mixer-api` 使用 Pedalboard 和 FFmpeg 生成母带 WAV、320 kbps MP3，并验证、原样打包调用方提供的 LRC。
 
-`music-mcp-server` v0.4.0 暴露六个可执行 v1 工具，可从配置白名单中的外部 S3/CDN HTTPS origin 流式导入客户音频，直接调用四个内部 API，并将结果登记到项目范围的持久化 Artifact 存储。`music.generate` 将时长参数解释为生成上限，保存模型自然结束的单个候选 WAV，不裁切或补静音。导入必须提供预期 SHA-256，服务禁用跳转并限制大小；它不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
+`music-lyrics-aligner-api` v0.1.0 锁定 Stable Whisper 2.19.1、OpenAI Whisper 20250625 和多语言 `small` 模型，把已批准中文歌词直接强制对齐到实际干声。对齐失败时不回退到原曲时间轴或线性缩放。设计见 [`docs/lyrics-alignment-design.md`](docs/lyrics-alignment-design.md)。
+
+`music-mcp-server` v0.5.0 暴露七个可执行 v1 工具，新增 `lyrics.align` 并对返回 LRC 执行逐行文字与严格时间戳校验。它可从配置白名单中的外部 S3/CDN HTTPS origin 流式导入客户音频，并将结果登记到项目范围的持久化 Artifact 存储。`music.generate` 将时长参数解释为生成上限，保存模型自然结束的单个候选 WAV，不裁切或补静音。服务不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
 
 当前静态、单元和契约测试不等于音频质量验收。只有在目标 GPU 跑完真实端到端脚本并完成人工审核后，才能确认模型效果、显存需求、处理时间和最终母带参数。
 
@@ -139,12 +145,12 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 声明式清单包括：
 
 - `namespace.yaml`：项目隔离边界。
-- `storage.yaml`：Music3、UVR5、RVC 模型卷和 MCP 项目 Artifact 卷，使用集群 `hostpath` StorageClass。
-- `services.yaml`：五个只在集群内部暴露的 ClusterIP Service。
-- `workloads.yaml`：五个版本化服务 Deployment。
+- `storage.yaml`：Music3、UVR5、RVC、歌词对齐模型卷和 MCP 项目 Artifact 卷，使用集群 `hostpath` StorageClass。
+- `services.yaml`：六个只在集群内部暴露的 ClusterIP Service。
+- `workloads.yaml`：六个版本化服务 Deployment。
 - `gpu-probe.yaml`：在下载 Music3 模型前验证同一 Pod 可见两个不同 RTX 4090 UUID 的一次性 Job。
 
-五个服务和双 GPU 探测固定调度到 `10.241.109.7`。Music3 申请两张完整 RTX 4090，并使用 32 GiB 内存型 `/dev/shm` 和 host IPC；UVR5 与 RVC 各申请一张完整 RTX 4090。GPU workload 同时要求 `NVIDIA-GeForce-RTX-4090` 和 `nvidia.com/gpu.sharing-strategy=none` 节点标签，避开 GPU 共享节点。
+六个服务和双 GPU 探测固定调度到 `10.241.109.7`。Music3 申请两张完整 RTX 4090；UVR5、RVC 和歌词对齐服务各申请一张完整 RTX 4090。GPU workload 同时要求 `NVIDIA-GeForce-RTX-4090` 和 `nvidia.com/gpu.sharing-strategy=none` 节点标签，避开 GPU 共享节点。
 
 模型数据落在该节点的 `/data/volumes/`。`hostpath` 没有容量硬隔离且不能跨节点迁移；节点不可用或资源不足时停止验证，不自动迁移到其他节点。删除 PVC 会删除对应本地目录，操作前必须确认数据保留策略。
 
@@ -152,11 +158,11 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 部署前必须同时满足：
 
-1. 五个版本镜像均由对应 `release` workflow 成功发布。`music-mcp-server-v0.4.0` 在本次变更进入 `release` 并完成流水线前不得部署；其余镜像也需重新核对对应 run 与公开拉取状态。
-2. Aliyun `wod/verdantflare-app` 中的五个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
+1. 六个版本镜像均由对应 `release` workflow 成功发布。新版本 `music-mcp-server-v0.5.0` 和 `music-lyrics-aligner-api-v0.1.0` 必须先完成流水线。
+2. Aliyun `wod/verdantflare-app` 中的六个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
 3. `hostpath` StorageClass 可用，`10.241.109.7:/data` 至少有 270 GiB 可用容量。
-4. `10.241.109.7` 为 Ready，且至少四张完整 RTX 4090 可用于同时运行 Music3、UVR5 和 RVC。
-5. 已准备 `docs/acceptance.md` 要求的批准企划、歌词、音乐描述、真人录音和 LRC。
+4. `10.241.109.7` 为 Ready，且至少五张完整 RTX 4090 可用于同时运行 Music3、UVR5、RVC 和歌词对齐。
+5. 已准备 `docs/acceptance.md` 要求的批准企划、生成歌词、纯歌词、音乐描述和真人录音。
 
 先创建隔离 namespace：
 
@@ -186,7 +192,7 @@ kubectl --context chengdu.beagle -n verdantflare-music \
   wait --for=condition=Available deployment --all --timeout=60m
 ```
 
-验收脚本从本机通过端口转发访问四个执行 API；MCP 客户端验证使用第五条端口转发：
+验收脚本从本机通过端口转发访问五个执行 API；MCP 客户端验证使用第六条端口转发：
 
 ```bash
 kubectl --context chengdu.beagle -n verdantflare-music \
@@ -196,12 +202,14 @@ kubectl --context chengdu.beagle -n verdantflare-music \
 kubectl --context chengdu.beagle -n verdantflare-music \
   port-forward service/music-rvc-api 8003:8000
 kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-audio-mixer-api 8004:8000
+  port-forward service/music-lyrics-aligner-api 8004:8000
 kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-mcp-server 8005:8000
+  port-forward service/music-audio-mixer-api 8005:8000
+kubectl --context chengdu.beagle -n verdantflare-music \
+  port-forward service/music-mcp-server 8006:8000
 ```
 
-五条端口转发需要在独立终端持续运行。随后按 [`docs/acceptance.md`](docs/acceptance.md) 设置真实输入并执行 `scripts/acceptance-music-workflow.sh`。脚本格式验收通过后仍需完成五个人工审核点，才能推进 `main`。
+六条端口转发需要在独立终端持续运行。随后按 [`docs/acceptance.md`](docs/acceptance.md) 设置真实输入并执行 `scripts/acceptance-music-workflow.sh`。脚本格式验收通过后仍需完成五个人工审核点，才能推进 `main`。
 
 ## 运行数据
 
@@ -224,7 +232,7 @@ kubectl --context chengdu.beagle -n verdantflare-music \
 - `dev` 用于日常开发与集成，`release` 用于发布，`main` 保存已验收的稳定代码。
 - 只允许按 `dev -> release -> main` 顺序快进分支，不得创建合并提交或改写历史。
 - `dev` 和 `main` 不运行 CI；推送 `release` 时按变更的服务执行检查、构建和镜像推送。
-- 为全部五个服务构建并发布由 VerdantFlare 维护的镜像。
+- 为全部六个服务构建并发布由 VerdantFlare 维护的镜像。
 - 测试、镜像构建和 Kubernetes 发布统一通过 CI/CD 流水线执行。
 - 锁定上游源码、Python 依赖、基础镜像和模型 Revision。
 - 保留上游许可证和署名声明。

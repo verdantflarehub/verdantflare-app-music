@@ -1,6 +1,6 @@
 # Music MCP Server
 
-Music MCP Server v0.4.0 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC 和 Mixer API，并把结果持久化为项目范围的 Artifact。
+Music MCP Server v0.5.0 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐和 Mixer API，并把结果持久化为项目范围的 Artifact。
 
 ## 工具
 
@@ -11,6 +11,7 @@ Music MCP Server v0.4.0 是音乐制作服务的可执行 MCP 边界。Streamabl
 | `stems.separate` | `project_id`、音频 Artifact ID | 伴奏 WAV、原始干声 WAV |
 | `voice.train` | `project_id`、录音 Artifact ID、模型 ID、epochs、batch size | RVC `.pth`、`.index`、验证 WAV |
 | `voice.convert` | `project_id`、干声 Artifact ID、模型 ID、变调半音数 | 克隆干声 WAV |
+| `lyrics.align` | `project_id`、人声 Artifact ID、已批准逐行歌词、语言 | 强制对齐的 UTF-8 LRC |
 | `mix.master` | `project_id`、伴奏与人声 Artifact ID、LRC 文本、BPM | 母带 WAV、MP3、LRC |
 
 工具不接受宿主机路径或媒体 Base64，也不返回内部服务 URL。`asset.import` 只读取 `MUSIC_ASSET_IMPORT_ORIGINS` 明确允许的 HTTPS origin，禁用跳转，拒绝 URL 内嵌凭据和 fragment，按文件扩展名限制为音频，并要求调用方提供 SHA-256。对象以最多 1 GiB 的流式内容写入临时目录，大小和 SHA-256 验证成功后才原子登记；签名 URL 不得写入项目记录。每个输出包含不可预测的 Artifact ID、文件名、媒体类型、大小、SHA-256 和下载路径。配置 `MUSIC_MCP_PUBLIC_BASE_URL` 后还会返回可直接读取的绝对资源链接。
@@ -36,13 +37,14 @@ GET /artifacts/{artifact_id}/content
 | `MUSIC3_URL` | `http://music-minimax-music3-api:8000` | Music3 API |
 | `UVR5_URL` | `http://music-uvr5-api:8000` | UVR5 API |
 | `RVC_URL` | `http://music-rvc-api:8000` | RVC API |
+| `LYRICS_ALIGNER_URL` | `http://music-lyrics-aligner-api:8000` | 已知歌词强制对齐 API |
 | `MIXER_URL` | `http://music-audio-mixer-api:8000` | Mixer API |
 
 Token 只能通过运行环境注入，不得写入镜像、清单或仓库。
 
 ## 成都集群验证
 
-镜像 `music-mcp-server-v0.4.0` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
+镜像 `music-mcp-server-v0.5.0` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
 
 ```bash
 kubectl --context chengdu.beagle -n verdantflare-music \

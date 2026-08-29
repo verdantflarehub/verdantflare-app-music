@@ -3,9 +3,9 @@ set -euo pipefail
 
 readonly PLAN_FILE="${PLAN_FILE:?PLAN_FILE is required}"
 readonly LYRICS_FILE="${LYRICS_FILE:?LYRICS_FILE is required}"
+readonly ALIGNMENT_LYRICS_FILE="${ALIGNMENT_LYRICS_FILE:?ALIGNMENT_LYRICS_FILE is required}"
 readonly INSTRUCTIONS_FILE="${INSTRUCTIONS_FILE:?INSTRUCTIONS_FILE is required}"
 readonly USER_VOICE_FILE="${USER_VOICE_FILE:?USER_VOICE_FILE is required}"
-readonly LRC_FILE="${LRC_FILE:?LRC_FILE is required}"
 readonly OUTPUT_DIR="${OUTPUT_DIR:?OUTPUT_DIR is required and must not exist}"
 readonly BPM="${BPM:?BPM is required}"
 readonly MODEL_ID="${MODEL_ID:-TonyStark}"
@@ -13,7 +13,8 @@ readonly SELECTED_CANDIDATE="${SELECTED_CANDIDATE:-1}"
 readonly MUSIC3_URL="${MUSIC3_URL:-http://127.0.0.1:8001}"
 readonly UVR5_URL="${UVR5_URL:-http://127.0.0.1:8002}"
 readonly RVC_URL="${RVC_URL:-http://127.0.0.1:8003}"
-readonly MIXER_URL="${MIXER_URL:-http://127.0.0.1:8004}"
+readonly LYRICS_ALIGNER_URL="${LYRICS_ALIGNER_URL:-http://127.0.0.1:8004}"
+readonly MIXER_URL="${MIXER_URL:-http://127.0.0.1:8005}"
 readonly SEED="${SEED:-7}"
 readonly MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-9000}"
 
@@ -22,7 +23,7 @@ if [[ "${SELECTED_CANDIDATE}" != "1" && "${SELECTED_CANDIDATE}" != "2" ]]; then
     exit 1
 fi
 for input in "${PLAN_FILE}" "${LYRICS_FILE}" "${INSTRUCTIONS_FILE}" \
-    "${USER_VOICE_FILE}" "${LRC_FILE}"; do
+    "${ALIGNMENT_LYRICS_FILE}" "${USER_VOICE_FILE}"; do
     test -s "${input}"
 done
 if [[ -e "${OUTPUT_DIR}" ]]; then
@@ -32,7 +33,8 @@ fi
 mkdir -p "${OUTPUT_DIR}/.work"
 readonly WORK_DIR="${OUTPUT_DIR}/.work"
 
-for url in "${MUSIC3_URL}" "${UVR5_URL}" "${RVC_URL}" "${MIXER_URL}"; do
+for url in "${MUSIC3_URL}" "${UVR5_URL}" "${RVC_URL}" \
+    "${LYRICS_ALIGNER_URL}" "${MIXER_URL}"; do
     curl --fail --silent --show-error "${url}/health" >/dev/null
 done
 
@@ -111,9 +113,16 @@ curl --fail --silent --show-error \
     --output "${OUTPUT_DIR}/vocal_dry_cloned.wav"
 
 curl --fail --silent --show-error \
+    --form "audio=@${OUTPUT_DIR}/vocal_dry_cloned.wav" \
+    --form "lyrics=@${ALIGNMENT_LYRICS_FILE};type=text/plain;charset=utf-8" \
+    --form "language=zh" \
+    "${LYRICS_ALIGNER_URL}/v1/lyrics/alignments" \
+    --output "${OUTPUT_DIR}/Aligned_Lyrics.lrc"
+
+curl --fail --silent --show-error \
     --form "instrumental=@${OUTPUT_DIR}/instrumental.wav" \
     --form "vocal=@${OUTPUT_DIR}/vocal_dry_cloned.wav" \
-    --form "lyrics_lrc=@${LRC_FILE}" \
+    --form "lyrics_lrc=@${OUTPUT_DIR}/Aligned_Lyrics.lrc" \
     --form "bpm=${BPM}" \
     "${MIXER_URL}/v1/audio/masters" \
     --output "${WORK_DIR}/final-song.zip"
@@ -134,9 +143,10 @@ with zipfile.ZipFile(sys.argv[2]) as archive:
         target.write_bytes(archive.read(item))
 PY
 
-python3 - "${OUTPUT_DIR}" "${MODEL_ID}" "${LRC_FILE}" <<'PY'
+python3 - "${OUTPUT_DIR}" "${MODEL_ID}" "${ALIGNMENT_LYRICS_FILE}" <<'PY'
 import json
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -153,6 +163,7 @@ expected = [
     f"{model_id}.index",
     f"{model_id}_validation.wav",
     "vocal_dry_cloned.wav",
+    "Aligned_Lyrics.lrc",
     "Final_Song_Master.wav",
     "Final_Song.mp3",
     "Final_Song.lrc",
@@ -180,8 +191,28 @@ if probe("Final_Song_Master.wav")["streams"][0].get("bits_per_raw_sample") != "2
 duration = float(probe(f"{model_id}_validation.wav")["format"]["duration"])
 if duration < 14.5 or duration > 15.1:
     raise SystemExit("model validation audio is not 15 seconds")
-if (root / "Final_Song.lrc").read_bytes() != pathlib.Path(sys.argv[3]).read_bytes():
-    raise SystemExit("Final_Song.lrc differs from supplied LRC")
+if (root / "Final_Song.lrc").read_bytes() != (root / "Aligned_Lyrics.lrc").read_bytes():
+    raise SystemExit("Final_Song.lrc differs from aligned LRC")
+
+source_lines = [line.strip() for line in pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").splitlines() if line.strip()]
+aligned_lines = [line for line in (root / "Aligned_Lyrics.lrc").read_text(encoding="utf-8").splitlines() if line]
+if len(aligned_lines) != len(source_lines):
+    raise SystemExit("Aligned_Lyrics.lrc changed the lyric line count")
+if [line.split("]", 1)[1] for line in aligned_lines] != source_lines:
+    raise SystemExit("Aligned_Lyrics.lrc changed the approved lyrics")
+
+timestamp_pattern = re.compile(r"^\[(\d{1,3}):(\d{2})\.(\d{3})\]")
+timestamps = []
+for line in aligned_lines:
+    match = timestamp_pattern.match(line)
+    if match is None or int(match.group(2)) >= 60:
+        raise SystemExit("Aligned_Lyrics.lrc contains an invalid timestamp")
+    timestamps.append((int(match.group(1)) * 60 + int(match.group(2))) * 1000 + int(match.group(3)))
+if any(current <= previous for previous, current in zip(timestamps, timestamps[1:])):
+    raise SystemExit("Aligned_Lyrics.lrc timestamps are not strictly increasing")
+vocal_duration_ms = round(float(probe("vocal_dry_cloned.wav")["format"]["duration"]) * 1000)
+if timestamps[-1] > vocal_duration_ms:
+    raise SystemExit("Aligned_Lyrics.lrc exceeds the vocal duration")
 print(json.dumps({"status": "passed", "outputs": expected}, ensure_ascii=False, indent=2))
 PY
 

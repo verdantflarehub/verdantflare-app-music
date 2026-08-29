@@ -21,7 +21,15 @@ class ServerTest(unittest.TestCase):
         tools = asyncio.run(mcp.list_tools())
         self.assertEqual(
             {tool.name for tool in tools},
-            {"asset.import", "music.generate", "stems.separate", "voice.train", "voice.convert", "mix.master"},
+            {
+                "asset.import",
+                "music.generate",
+                "stems.separate",
+                "voice.train",
+                "voice.convert",
+                "lyrics.align",
+                "mix.master",
+            },
         )
         properties = {tool.name: set(tool.input_schema["properties"]) for tool in tools}
         self.assertEqual(
@@ -39,6 +47,7 @@ class ServerTest(unittest.TestCase):
                 "stems.separate": {"project_id", "audio_asset_id"},
                 "voice.train": {"project_id", "audio_asset_id", "model_id", "epochs", "batch_size"},
                 "voice.convert": {"project_id", "audio_asset_id", "model_id", "pitch_shift"},
+                "lyrics.align": {"project_id", "vocal_asset_id", "lyrics", "language"},
                 "mix.master": {
                     "project_id",
                     "instrumental_asset_id",
