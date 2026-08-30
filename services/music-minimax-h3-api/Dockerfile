@@ -6,13 +6,20 @@ USER root
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax H3 Ref2VA API"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.1.1"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-H3-Community"
 
 # The tagged SGLang image contains the matching source tree. Install its
 # diffusion extras without following a moving Git branch.
 RUN python3 -m pip install --no-cache-dir -e "/sgl-workspace/sglang/python[diffusion]"; \
     python3 -c "import sglang; assert sglang.__version__ == '0.5.18'"
+
+COPY patches/sglang-17313cf4-minimax-h3-audio-forward-context.patch /tmp/
+RUN git -C /sgl-workspace/sglang apply --check \
+        /tmp/sglang-17313cf4-minimax-h3-audio-forward-context.patch; \
+    git -C /sgl-workspace/sglang apply \
+        /tmp/sglang-17313cf4-minimax-h3-audio-forward-context.patch; \
+    rm /tmp/sglang-17313cf4-minimax-h3-audio-forward-context.patch
 
 COPY entrypoint.sh /usr/local/bin/music-minimax-h3-entrypoint
 COPY smoke-test.sh /usr/local/bin/music-minimax-h3-smoke-test
