@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import mimetypes
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import httpx
+
+from .artifacts import MAX_ARTIFACT_BYTES, ArtifactRecord, ArtifactStore, require_filename, require_project_id
+from .tasks import TaskConflict, TaskRecord, TaskStore
+
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+MEDIA_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+    ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+}
+
+
+class ExecutionError(RuntimeError):
+    pass
+
+
+class VideoExecutor:
+    def __init__(self, artifacts: ArtifactStore, tasks: TaskStore, client: httpx.Client | None = None) -> None:
+        self.artifacts = artifacts
+        self.tasks = tasks
+        self.runtime_url = os.environ.get("H3_RUNTIME_URL", "http://music-minimax-h3-api:8000").rstrip("/")
+        self.runtime_artifact_url = os.environ.get("VIDEO_MCP_RUNTIME_BASE_URL", "http://video-mcp-server:8000").rstrip("/")
+        self.runtime_version = os.environ.get("H3_RUNTIME_VERSION", "music-minimax-h3-api-v0.1.1")
+        self.allowed_origins = frozenset(x.strip() for x in os.environ.get("VIDEO_ASSET_IMPORT_ORIGINS", "").split(",") if x.strip())
+        self.client = client or httpx.Client(timeout=httpx.Timeout(connect=10, read=3600, write=600, pool=10), follow_redirects=False)
+
+    def import_asset(self, *, project_id: str, source_url: str, filename: str, expected_sha256: str) -> ArtifactRecord:
+        project_id = require_project_id(project_id)
+        filename = require_filename(filename)
+        media_type = MEDIA_TYPES.get(Path(filename).suffix.lower())
+        if media_type is None:
+            raise ValueError("filename uses an unsupported media extension")
+        digest = expected_sha256.strip().lower()
+        if not SHA256_PATTERN.fullmatch(digest):
+            raise ValueError("expected_sha256 must contain exactly 64 hexadecimal characters")
+        parsed = urlsplit(source_url)
+        origin = f"{parsed.scheme}://{parsed.hostname}" if parsed.port in {None, 443} else f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.fragment or origin not in self.allowed_origins:
+            raise ValueError("source_url must be an allowed absolute HTTPS object URL")
+        try:
+            with self.client.stream("GET", source_url, headers={"Accept": "image/*, audio/*, video/*, application/octet-stream"}) as response:
+                if not 200 <= response.status_code < 300:
+                    raise ExecutionError(f"asset import returned HTTP {response.status_code}")
+                length = response.headers.get("content-length")
+                if length and not 0 < int(length) <= MAX_ARTIFACT_BYTES:
+                    raise ExecutionError("asset import size must be between 1 byte and 1 GiB")
+                return self.artifacts.create_from_chunks(project_id=project_id, operation="artifact.import",
+                                                         filename=filename, media_type=media_type,
+                                                         chunks=response.iter_bytes(), expected_sha256=digest)
+        except httpx.HTTPError as error:
+            raise ExecutionError("asset import request failed") from error
+
+    def _normalize(self, project_id: str, model: str, prompt: str, duration_seconds: int,
+                   aspect_ratio: str, references: dict[str, list[dict[str, str]]]) -> tuple[dict[str, object], str]:
+        if model != "minimax-h3-ref2va":
+            raise ValueError("model must be minimax-h3-ref2va")
+        if not 4 <= duration_seconds <= 15 or aspect_ratio != "9:16" or not prompt.strip():
+            raise ValueError("duration_seconds, aspect_ratio, or prompt is invalid")
+        limits = {"images": 9, "videos": 3, "audios": 3}
+        if not references.get("images") and not references.get("videos"):
+            raise ValueError("at least one image or video reference is required")
+        normalized: dict[str, list[dict[str, str]]] = {}
+        for kind, limit in limits.items():
+            items = references.get(kind, [])
+            if len(items) > limit:
+                raise ValueError(f"too many {kind} references")
+            normalized[kind] = []
+            for item in items:
+                artifact = self.artifacts.get(item["artifact_id"], project_id)
+                expected_prefix = {"images": "image/", "videos": "video/", "audios": "audio/"}[kind]
+                if not artifact.media_type.startswith(expected_prefix) or not item.get("purpose", "").strip():
+                    raise ValueError(f"invalid {kind} reference")
+                normalized[kind].append({"artifact_id": artifact.artifact_id, "purpose": item["purpose"].strip()})
+        request = {"project_id": project_id, "model": model, "prompt": prompt.strip(),
+                   "duration_seconds": duration_seconds, "aspect_ratio": aspect_ratio, "references": normalized}
+        canonical = json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return request, "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+    def generate(self, *, project_id: str, idempotency_key: str, model: str, prompt: str,
+                 duration_seconds: int, aspect_ratio: str,
+                 references: dict[str, list[dict[str, str]]]) -> TaskRecord:
+        project_id = require_project_id(project_id)
+        if not idempotency_key.strip() or len(idempotency_key) > 128:
+            raise ValueError("idempotency_key is invalid")
+        request, digest = self._normalize(project_id, model, prompt, duration_seconds, aspect_ratio, references)
+        existing = self.tasks.find_idempotency(project_id, idempotency_key)
+        if existing:
+            if existing.input_digest != digest:
+                raise TaskConflict("idempotency key already exists with different input")
+            return existing
+        conditions = []
+        material_tags = []
+        singular = {"images": "image", "videos": "video", "audios": "audio"}
+        tag_name = {"images": "Picture", "videos": "Video", "audios": "Audio"}
+        for kind in ("images", "videos", "audios"):
+            for index, item in enumerate(request["references"][kind], start=1):
+                conditions.append({"type": singular[kind],
+                                   "uri": f"{self.runtime_artifact_url}/runtime-artifacts/{item['artifact_id']}/content",
+                                   "role": "reference"})
+                material_tags.append(f"<{tag_name[kind]} {index}> is the approved {item['purpose']} reference")
+        compiled_prompt = "; ".join(material_tags) + ". " + request["prompt"]
+        payload = {"model": "MiniMaxAI/MiniMax-H3", "task": "ref2va", "prompt": compiled_prompt,
+                   "seconds": duration_seconds, "conditions": conditions,
+                   "target": {"short_edge": 768, "aspect_ratio": aspect_ratio, "duration_seconds": float(duration_seconds)},
+                   "num_outputs_per_prompt": 1, "num_inference_steps": 50, "flow_shift": 12.0,
+                   "audio_flow_shift": 3.0, "seed": 7}
+        try:
+            response = self.client.post(f"{self.runtime_url}/v1/videos", json=payload)
+            response.raise_for_status()
+            runtime_task_id = response.json()["id"]
+        except (httpx.HTTPError, KeyError, ValueError) as error:
+            raise ExecutionError("H3 runtime submission failed") from error
+        return self.tasks.create(project_id=project_id, idempotency_key=idempotency_key,
+                                 input_digest=digest, request=request, runtime_task_id=runtime_task_id, status="queued")
+
+    def status(self, video_task_id: str) -> TaskRecord:
+        record = self.tasks.get(video_task_id)
+        if record.status in {"succeeded", "failed", "cancelled"}:
+            return record
+        try:
+            response = self.client.get(f"{self.runtime_url}/v1/videos/{record.runtime_task_id}")
+            response.raise_for_status()
+            runtime_status = response.json()["status"]
+        except (httpx.HTTPError, KeyError, ValueError) as error:
+            raise ExecutionError("H3 runtime status request failed") from error
+        mapped = {"queued": "queued", "in_progress": "running", "completed": "succeeded",
+                  "failed": "failed", "failure": "failed"}.get(runtime_status)
+        if mapped is None:
+            raise ExecutionError("H3 runtime returned an unknown status")
+        error = {"code": "runtime_failed", "message": "H3 generation failed"} if mapped == "failed" else None
+        return self.tasks.update(record, status=mapped, error=error)
+
+    def result(self, video_task_id: str) -> TaskRecord:
+        record = self.status(video_task_id)
+        if record.status != "succeeded":
+            raise ExecutionError("video task has not succeeded")
+        if record.artifact_id:
+            return record
+        try:
+            response = self.client.get(f"{self.runtime_url}/v1/videos/{record.runtime_task_id}/content")
+            response.raise_for_status()
+            payload = response.content
+        except httpx.HTTPError as error:
+            raise ExecutionError("H3 result download failed") from error
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as temp:
+            temp.write(payload); temp.flush()
+            probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                                    "format=duration:stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels",
+                                    "-of", "json", temp.name], check=True, capture_output=True, text=True)
+        data = json.loads(probe.stdout)
+        video = next((s for s in data["streams"] if s["codec_type"] == "video"), None)
+        audio = next((s for s in data["streams"] if s["codec_type"] == "audio"), None)
+        if not video or video.get("codec_name") != "h264" or video.get("r_frame_rate") != "24/1":
+            raise ExecutionError("H3 result failed the H.264/24 FPS media contract")
+        duration_ms = round(float(data["format"]["duration"]) * 1000)
+        expected_ms = int(record.request["duration_seconds"]) * 1000
+        if abs(duration_ms - expected_ms) > 500:
+            raise ExecutionError("H3 result duration is outside the approved tolerance")
+        artifact = self.artifacts.create_from_chunks(project_id=record.project_id, operation="video.result",
+                                                     filename=f"{record.video_task_id}.mp4", media_type="video/mp4",
+                                                     chunks=(payload,))
+        media = {"duration_ms": duration_ms, "width": video["width"], "height": video["height"],
+                 "frame_rate": 24, "video_codec": "h264", "audio_codec": audio.get("codec_name") if audio else None,
+                 "audio_sample_rate": int(audio["sample_rate"]) if audio and audio.get("sample_rate") else None,
+                 "audio_channels": audio.get("channels") if audio else None}
+        return self.tasks.update(record, artifact_id=artifact.artifact_id, media=media)
