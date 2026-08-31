@@ -132,6 +132,11 @@ class VideoExecutor:
             return record
         try:
             response = self.client.get(f"{self.runtime_url}/v1/videos/{record.runtime_task_id}")
+            if response.status_code == 404:
+                return self.tasks.update(record, status="failed", error={
+                    "code": "runtime_task_lost",
+                    "message": "H3 runtime task no longer exists",
+                })
             response.raise_for_status()
             runtime_status = response.json()["status"]
         except (httpx.HTTPError, KeyError, ValueError) as error:
