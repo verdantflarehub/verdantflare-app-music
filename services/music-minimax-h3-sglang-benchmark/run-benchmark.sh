@@ -176,6 +176,7 @@ submit_run() {
         --arg run_name "${run_name}" \
         --arg video_id "${video_id}" \
         --arg quantization "${H3_QUANTIZATION:-bf16}" \
+        --arg transformer_weights_path "${H3_TRANSFORMER_WEIGHTS_PATH:-}" \
         --arg sglang_commit "${SGLANG_COMMIT:-unknown}" \
         --arg comfy_kitchen_version "${COMFY_KITCHEN_VERSION:-unknown}" \
         --argjson sigma_points "${sigma_points}" \
@@ -187,6 +188,7 @@ submit_run() {
           run: $run_name,
           video_id: $video_id,
           quantization: $quantization,
+          transformer_weights_path: $transformer_weights_path,
           sglang_commit: $sglang_commit,
           comfy_kitchen_version: $comfy_kitchen_version,
           sigma_points: $sigma_points,

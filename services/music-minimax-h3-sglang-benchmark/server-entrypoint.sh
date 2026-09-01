@@ -8,6 +8,7 @@ readonly revision_file="${model_path}/.verdantflare-revision"
 readonly server_port="${H3_SERVER_PORT:-8000}"
 readonly output_path="${H3_SERVER_OUTPUT_PATH:?H3_SERVER_OUTPUT_PATH is required}"
 readonly quantization="${H3_QUANTIZATION:-bf16}"
+readonly transformer_weights_path="${H3_TRANSFORMER_WEIGHTS_PATH:-}"
 
 if [[ "${H3_VISIBLE_GPU_COUNT:-1}" != "1" ]]; then
     echo "The official RTX 4090 benchmark requires exactly one visible GPU." >&2
@@ -40,11 +41,26 @@ case "${quantization}" in
     kitchen_int8)
         quantization_args=(--quantization kitchen_int8)
         ;;
+    serialized_kitchen_int8)
+        if [[ -z "${transformer_weights_path}" ]]; then
+            echo "H3_TRANSFORMER_WEIGHTS_PATH is required for serialized_kitchen_int8" >&2
+            exit 1
+        fi
+        ;;
     *)
-        echo "H3_QUANTIZATION must be bf16 or kitchen_int8, got: ${quantization}" >&2
+        echo "H3_QUANTIZATION must be bf16, kitchen_int8, or serialized_kitchen_int8, got: ${quantization}" >&2
         exit 1
         ;;
 esac
+
+transformer_weights_args=()
+if [[ -n "${transformer_weights_path}" ]]; then
+    if [[ ! -f "${transformer_weights_path}" ]]; then
+        echo "Transformer weights do not exist: ${transformer_weights_path}" >&2
+        exit 1
+    fi
+    transformer_weights_args=(--transformer-weights-path "${transformer_weights_path}")
+fi
 
 lora_args=()
 if [[ -n "${H3_LORA_PATH:-}" ]]; then
@@ -82,5 +98,6 @@ exec /opt/nvidia/nvidia_entrypoint.sh sglang serve \
     --host 0.0.0.0 \
     --port "${server_port}" \
     "${quantization_args[@]}" \
+    "${transformer_weights_args[@]}" \
     "${lora_args[@]}" \
     "$@"

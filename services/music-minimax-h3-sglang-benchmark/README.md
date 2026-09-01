@@ -13,6 +13,7 @@ API and not a ComfyUI installation.
 | comfy-kitchen | `0.2.31` |
 | FlashInfer Python/cubin | `0.6.17` |
 | MiniMax H3 | `42ed227ee7df40d41602854ae760620d6eb651fe` |
+| Comfy-Org serialized INT8 | `4cc1d817b6184899b41293954329f576cb5ae86b` |
 
 The base image only supplies the CUDA environment and build dependencies
 already validated on the target cluster. The Docker build checks out the
@@ -23,6 +24,11 @@ are not used at runtime.
 The server selects `--model-type diffusion` explicitly because the benchmark
 PVC contains a deliberately partial local model snapshot. Automatic backend
 detection otherwise treats that local root as an LLM checkpoint.
+
+Serialized ConvRot checkpoints set `H3_QUANTIZATION=serialized_kitchen_int8`
+and `H3_TRANSFORMER_WEIGHTS_PATH` to a verified local safetensors file. Their
+per-layer metadata selects `kitchen_int8`; the server intentionally does not
+also pass `--quantization`, which SGLang rejects for serialized checkpoints.
 
 ## Fixed 4090 placement
 
