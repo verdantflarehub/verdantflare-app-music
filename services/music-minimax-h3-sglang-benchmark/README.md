@@ -38,6 +38,11 @@ MP4 and ffprobe JSON, elapsed wall time, GPU samples, cgroup peak memory, and
 the complete SGLang server log. Existing output directories are rejected so a
 rerun cannot overwrite evidence.
 
+Before starting SGLang, the runner waits up to five minutes for external CUDA
+contexts left by the previous workload to leave the HAMI-assigned GPU. This is
+required because `kitchen_int8` temporarily fills almost all 24 GiB while it
+loads and quantizes the Transformer.
+
 The Kubernetes jobs and serial execution instructions live in
 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/benchmarks/` in the
 design repository.

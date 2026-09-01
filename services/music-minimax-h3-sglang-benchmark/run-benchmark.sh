@@ -14,6 +14,8 @@ readonly warmup_seed="${H3_WARMUP_SEED:-0}"
 readonly timed_seed="${H3_TIMED_SEED:-7}"
 readonly poll_interval_seconds="${H3_POLL_INTERVAL_SECONDS:-5}"
 readonly max_poll_count="${H3_MAX_POLL_COUNT:-4320}"
+readonly gpu_quiesce_timeout_seconds="${H3_GPU_QUIESCE_TIMEOUT_SECONDS:-300}"
+readonly gpu_quiesce_poll_seconds="${H3_GPU_QUIESCE_POLL_SECONDS:-5}"
 
 if [[ -e "${benchmark_root}" ]]; then
     echo "Benchmark output already exists: ${benchmark_root}" >&2
@@ -26,6 +28,27 @@ curl --fail --location --silent --show-error "${reference_url}" --output "${refe
 ffprobe -v error -show_entries stream=codec_type -of json "${reference_file}" \
     >"${benchmark_root}/reference.ffprobe.json"
 sha256sum "${reference_file}" >"${benchmark_root}/reference.sha256"
+
+gpu_quiesce_deadline=$((SECONDS + gpu_quiesce_timeout_seconds))
+while true; do
+    gpu_process_output="$(
+        nvidia-smi --query-compute-apps=pid,used_memory \
+            --format=csv,noheader,nounits
+    )"
+    mapfile -t gpu_processes < <(
+        printf '%s\n' "${gpu_process_output}" | sed '/^[[:space:]]*$/d'
+    )
+    if (( ${#gpu_processes[@]} == 0 )); then
+        break
+    fi
+    if (( SECONDS >= gpu_quiesce_deadline )); then
+        echo "GPU still has external CUDA processes after ${gpu_quiesce_timeout_seconds}s:" >&2
+        printf '  %s\n' "${gpu_processes[@]}" >&2
+        exit 1
+    fi
+    echo "Waiting for external CUDA processes to exit: ${gpu_processes[*]}"
+    sleep "${gpu_quiesce_poll_seconds}"
+done
 
 export H3_SERVER_OUTPUT_PATH="${benchmark_root}/server-output"
 music-minimax-h3-sglang-server >"${benchmark_root}/server.log" 2>&1 &
