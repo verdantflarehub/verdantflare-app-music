@@ -9,7 +9,7 @@ from unittest import mock
 import httpx
 
 from verdantflare_video_mcp.artifacts import ArtifactStore
-from verdantflare_video_mcp.executor import VideoExecutor
+from verdantflare_video_mcp.executor import ExecutionError, VideoExecutor
 from verdantflare_video_mcp.tasks import TaskConflict, TaskStore
 
 
@@ -88,6 +88,44 @@ class VideoMCPTest(unittest.TestCase):
         task = executor.status(record.stem)
         self.assertEqual(task.status, "failed")
         self.assertEqual(task.error["code"], "runtime_task_lost")
+
+    def test_result_accepts_h3_temporal_bucket_edit_handle(self) -> None:
+        record = self.tasks.create(project_id="promo-test", idempotency_key="unit/attempt_01",
+                                   input_digest="sha256:test",
+                                   request={"model": "minimax-h3-ref2va", "duration_seconds": 13},
+                                   runtime_task_id="runtime-id", status="succeeded")
+        executor = VideoExecutor(self.artifacts, self.tasks,
+                                 httpx.Client(transport=httpx.MockTransport(
+                                     lambda request: httpx.Response(200, content=b"video"))))
+        probe = mock.Mock(stdout=json.dumps({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264", "width": 768,
+                 "height": 1344, "r_frame_rate": "24/1"},
+                {"codec_type": "audio", "codec_name": "aac", "sample_rate": "44100", "channels": 2},
+            ],
+            "format": {"duration": "13.675"},
+        }))
+        with mock.patch("verdantflare_video_mcp.executor.subprocess.run", return_value=probe):
+            result = executor.result(record.video_task_id)
+        self.assertEqual(result.media["duration_ms"], 13675)
+        self.assertIsNotNone(result.artifact_id)
+
+    def test_result_rejects_more_than_one_second_duration_difference(self) -> None:
+        record = self.tasks.create(project_id="promo-test", idempotency_key="unit/attempt_01",
+                                   input_digest="sha256:test",
+                                   request={"model": "minimax-h3-ref2va", "duration_seconds": 13},
+                                   runtime_task_id="runtime-id", status="succeeded")
+        executor = VideoExecutor(self.artifacts, self.tasks,
+                                 httpx.Client(transport=httpx.MockTransport(
+                                     lambda request: httpx.Response(200, content=b"video"))))
+        probe = mock.Mock(stdout=json.dumps({
+            "streams": [{"codec_type": "video", "codec_name": "h264", "width": 768,
+                         "height": 1344, "r_frame_rate": "24/1"}],
+            "format": {"duration": "14.001"},
+        }))
+        with mock.patch("verdantflare_video_mcp.executor.subprocess.run", return_value=probe):
+            with self.assertRaisesRegex(ExecutionError, "duration"):
+                executor.result(record.video_task_id)
 
 
 if __name__ == "__main__":

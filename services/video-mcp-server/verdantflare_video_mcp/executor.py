@@ -21,6 +21,7 @@ MEDIA_TYPES = {
     ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
     ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
 }
+H3_DURATION_TOLERANCE_MS = 1000
 
 
 class ExecutionError(RuntimeError):
@@ -172,7 +173,9 @@ class VideoExecutor:
             raise ExecutionError("H3 result failed the H.264/24 FPS media contract")
         duration_ms = round(float(data["format"]["duration"]) * 1000)
         expected_ms = int(record.request["duration_seconds"]) * 1000
-        if abs(duration_ms - expected_ms) > 500:
+        # H3 rounds generation to its internal temporal frame bucket, which can
+        # leave less than one second of edit handle beyond the requested length.
+        if abs(duration_ms - expected_ms) > H3_DURATION_TOLERANCE_MS:
             raise ExecutionError("H3 result duration is outside the approved tolerance")
         artifact = self.artifacts.create_from_chunks(project_id=record.project_id, operation="video.result",
                                                      filename=f"{record.video_task_id}.mp4", media_type="video/mp4",
