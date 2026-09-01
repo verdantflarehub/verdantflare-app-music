@@ -106,6 +106,13 @@ def voice_train(
     return artifact_result(store, project_id, "voice.train", records)
 
 
+@mcp.tool(name="voice.prepare")
+def voice_prepare(project_id: str, audio_asset_ids: list[str]) -> types.CallToolResult:
+    """Prepare 1-20 authorized recordings as deterministic RVC training material for human review."""
+    records = executor.prepare_voice(project_id=project_id, audio_asset_ids=audio_asset_ids)
+    return artifact_result(store, project_id, "voice.prepare", records)
+
+
 @mcp.tool(name="voice.convert")
 def voice_convert(
     project_id: str,

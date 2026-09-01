@@ -6,7 +6,8 @@
 
 该服务负责：
 
-- 使用上传的真人录音训练不可覆盖的 RVC v2 voice model。
+- 将 1–20 份上传录音确定性准备为可人工审核的训练材料。
+- 使用获批训练材料训练不可覆盖的 RVC v2 voice model。
 - 返回 `.pth`、`.index` 和基于输入前 15 秒执行真实转换的验证 WAV。
 - 发现已训练或管理员预先安装的 RVC voice model。
 - 使用上传的音频和受控转换参数执行单次音色转换。
@@ -30,7 +31,7 @@
 | PyTorch | `2.4.1` |
 | CUDA | `12.4` |
 | RVC runtime model revision | `e6d0c1a17da07c33557852f9dfa2bd44cc75737d` |
-| 服务镜像 | `verdantflare-app:music-rvc-api-v0.1.5` |
+| 服务镜像 | `verdantflare-app:music-rvc-api-v0.2.0` |
 
 上游代码和依赖进入镜像；模型与镜像分离。容器首次启动时下载固定 revision 的 HuBERT、RMVPE 和 RVC v2 40 kHz 预训练权重到持久化 runtime 目录，不下载 UVR5 模型。
 上传录音在进入 RVC 上游预处理前统一解码为 40 kHz、单声道、16-bit PCM WAV，因此 API 可接受 FFmpeg 支持的 M4A、MP3、FLAC 和 WAV，而不依赖上传文件扩展名。
@@ -63,6 +64,20 @@ RVC checkpoint 通过 PyTorch 加载，可能包含可执行的 pickle 数据。
 
 ### 训练音色
 
+训练前先准备材料：
+
+```bash
+curl --fail --show-error \
+  http://127.0.0.1:8000/v1/voice-datasets/prepare \
+  -F audio=@recording-01.m4a \
+  -F audio=@recording-02.wav \
+  --output voice-preparation.zip
+```
+
+接口接收 1–20 份录音，总大小不超过 300 MiB。固定输出 40 kHz、16-bit、mono PCM，按 -50 dBFS 与 1 秒连续静音切割，连接处保留约 0.8 秒，峰值不高于约 -2 dBFS。它不执行 AI 修音、降噪、压缩、共振峰修改或生成式增强。ZIP 包含 `prepared-XX.wav`、`voice-training.wav`、`voice-segments.zip`、`voice-preparation-report.json` 和 `manifest.json`；报告的自动通过状态不能代替人工审核。
+
+人工批准 `voice-training.wav` 后再训练：
+
 ```bash
 curl --fail --show-error \
   http://127.0.0.1:8000/v1/voice-models/train \
@@ -82,7 +97,7 @@ curl --fail --show-error \
 
 ```bash
 docker build \
-  -t verdantflare-app:music-rvc-api-v0.1.5 \
+  -t verdantflare-app:music-rvc-api-v0.2.0 \
   services/music-rvc-api
 ```
 
@@ -92,7 +107,7 @@ docker build \
 docker build \
   --build-arg BASE_IMAGE=registry.cn-qingdao.aliyuncs.com/wod/pytorch:2.4.1-cuda12.4-cudnn9-devel \
   --build-arg PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-  -t verdantflare-app:music-rvc-api-v0.1.5 \
+  -t verdantflare-app:music-rvc-api-v0.2.0 \
   services/music-rvc-api
 ```
 
@@ -106,7 +121,7 @@ docker run --rm \
   --shm-size 8g \
   -p 8000:8000 \
   -v /data/models/rvc:/models/rvc \
-  verdantflare-app:music-rvc-api-v0.1.5
+  verdantflare-app:music-rvc-api-v0.2.0
 ```
 
 服务固定使用单个 Uvicorn worker，并在进程内串行执行训练和转换，避免 GPU 并发与模型切换冲突。容器没有可见 CUDA GPU、基础权重下载失败或 API 无法启动时会直接失败。

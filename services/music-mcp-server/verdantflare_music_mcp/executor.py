@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import math
 import os
 import re
@@ -37,6 +38,8 @@ AUDIO_MEDIA_TYPES = {
     ".opus": "audio/ogg",
     ".wav": "audio/wav",
 }
+MAX_VOICE_PREPARATION_BYTES = 300 * 1024 * 1024
+VOICE_SEGMENT_PATTERN = re.compile(r"\d{2}-\d{3}\.wav")
 LRC_LINE_PATTERN = re.compile(r"^\[(\d{1,3}):(\d{2})\.(\d{3})\](.+)$")
 
 
@@ -148,23 +151,73 @@ def extract_expected_zip(payload: bytes, expected: dict[str, str]) -> dict[str, 
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             members = archive.infolist()
-            names = [member.filename for member in members if member.filename != "manifest.json"]
-            if len(names) != len(set(names)) or set(names) != set(expected):
+            names = [member.filename for member in members]
+            if len(names) != len(set(names)) or set(names) != set(expected) | {"manifest.json"}:
                 raise ExecutionError("downstream ZIP does not contain the exact expected files")
             if sum(member.file_size for member in members) > 1024 * 1024 * 1024:
                 raise ExecutionError("downstream ZIP contents exceed 1 GiB")
             outputs: dict[str, bytes] = {}
             for member in members:
-                if member.filename == "manifest.json":
-                    continue
                 if member.is_dir() or member.flag_bits & 0x1 or require_filename(member.filename) != member.filename:
                     raise ExecutionError("downstream ZIP contains an unsafe member")
                 if member.file_size > 1024 * 1024 * 1024:
                     raise ExecutionError("downstream ZIP member exceeds 1 GiB")
+                if member.filename == "manifest.json":
+                    continue
                 outputs[member.filename] = archive.read(member)
             return outputs
     except (ValueError, zipfile.BadZipFile) as error:
         raise ExecutionError("downstream returned an invalid ZIP") from error
+
+
+def validate_voice_preparation_outputs(outputs: dict[str, bytes], source_count: int) -> None:
+    wav_names = [f"prepared-{number:02d}.wav" for number in range(1, source_count + 1)]
+    wav_names.append("voice-training.wav")
+    for name in wav_names:
+        try:
+            with wave.open(io.BytesIO(outputs[name]), "rb") as source:
+                if (
+                    source.getcomptype() != "NONE"
+                    or source.getnchannels() != 1
+                    or source.getsampwidth() != 2
+                    or source.getframerate() != 40000
+                    or source.getnframes() <= 0
+                ):
+                    raise ExecutionError("RVC returned an invalid prepared WAV")
+        except (EOFError, wave.Error) as error:
+            raise ExecutionError("RVC returned an invalid prepared WAV") from error
+    try:
+        report = json.loads(outputs["voice-preparation-report.json"])
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ExecutionError("RVC returned an invalid voice preparation report") from error
+    if not isinstance(report, dict) or not isinstance(report.get("sources"), list):
+        raise ExecutionError("RVC returned an inconsistent voice preparation report")
+    if (
+        report.get("schema_version") != 1
+        or report.get("automatic_status") != "passed"
+        or report.get("review_required") is not True
+        or len(report["sources"]) != source_count
+    ):
+        raise ExecutionError("RVC returned an inconsistent voice preparation report")
+    try:
+        with zipfile.ZipFile(io.BytesIO(outputs["voice-segments.zip"])) as archive:
+            members = archive.infolist()
+            names = [member.filename for member in members]
+            segment_names = [name for name in names if name != "manifest.json"]
+            if (
+                len(names) != len(set(names))
+                or names.count("manifest.json") != 1
+                or not segment_names
+                or any(not VOICE_SEGMENT_PATTERN.fullmatch(name) for name in segment_names)
+                or any(member.is_dir() or member.flag_bits & 0x1 for member in members)
+                or sum(member.file_size for member in members) > 1024 * 1024 * 1024
+            ):
+                raise ExecutionError("RVC returned an unsafe voice segments ZIP")
+            source_numbers = {int(name[:2]) for name in segment_names}
+            if source_numbers != set(range(1, source_count + 1)):
+                raise ExecutionError("RVC returned incomplete voice segments")
+    except zipfile.BadZipFile as error:
+        raise ExecutionError("RVC returned an invalid voice segments ZIP") from error
 
 
 def validate_aligned_lrc(payload: bytes, lyrics: str) -> str:
@@ -375,6 +428,54 @@ class MusicExecutor:
             self.store.create(
                 project_id=project,
                 operation="voice.train",
+                filename=filename,
+                media_type=media_type,
+                payload=outputs[filename],
+            )
+            for filename, media_type in expected.items()
+        ]
+
+    def prepare_voice(
+        self,
+        *,
+        project_id: str,
+        audio_asset_ids: list[str],
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        if not 1 <= len(audio_asset_ids) <= 20:
+            raise ValueError("audio_asset_ids must contain 1-20 artifacts")
+        if len(audio_asset_ids) != len(set(audio_asset_ids)):
+            raise ValueError("audio_asset_ids must not contain duplicates")
+        sources: list[tuple[ArtifactRecord, bytes]] = []
+        total_size = 0
+        for artifact_id in audio_asset_ids:
+            record, payload = self.store.read(artifact_id, project)
+            if not record.media_type.startswith("audio/"):
+                raise ValueError("audio_asset_ids must reference audio artifacts")
+            total_size += len(payload)
+            if total_size > MAX_VOICE_PREPARATION_BYTES:
+                raise ValueError("voice preparation inputs exceed 300 MiB")
+            sources.append((record, payload))
+        archive = self._post(
+            "RVC",
+            f"{self.service_urls.rvc}/v1/voice-datasets/prepare",
+            files=[
+                ("audio", (record.filename, payload, record.media_type))
+                for record, payload in sources
+            ],
+        )
+        expected = {
+            **{f"prepared-{number:02d}.wav": "audio/wav" for number in range(1, len(sources) + 1)},
+            "voice-training.wav": "audio/wav",
+            "voice-segments.zip": "application/zip",
+            "voice-preparation-report.json": "application/json",
+        }
+        outputs = extract_expected_zip(archive, expected)
+        validate_voice_preparation_outputs(outputs, len(sources))
+        return [
+            self.store.create(
+                project_id=project,
+                operation="voice.prepare",
                 filename=filename,
                 media_type=media_type,
                 payload=outputs[filename],

@@ -204,7 +204,7 @@ spec:
                       - none
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-rvc-api-v0.1.5
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-rvc-api-v0.2.0
           imagePullPolicy: IfNotPresent
           env:
             - name: HF_ENDPOINT
@@ -419,7 +419,7 @@ spec:
         kubernetes.io/hostname: 10.241.109.7
       containers:
         - name: api
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.5.2
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-mcp-server-v0.6.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MUSIC_ARTIFACT_ROOT

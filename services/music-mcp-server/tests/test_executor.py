@@ -29,6 +29,37 @@ def wav_bytes(seconds: float, sample_rate: int = 32000) -> bytes:
     return output.getvalue()
 
 
+def mono_wav_bytes(seconds: float, sample_rate: int = 40000) -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(b"\x01\x00" * round(seconds * sample_rate))
+    return output.getvalue()
+
+
+def voice_preparation_zip(source_count: int) -> bytes:
+    segment_output = io.BytesIO()
+    with zipfile.ZipFile(segment_output, "w") as archive:
+        for number in range(1, source_count + 1):
+            archive.writestr(f"{number:02d}-001.wav", mono_wav_bytes(0.1))
+        archive.writestr("manifest.json", "{}")
+    report = {
+        "schema_version": 1,
+        "automatic_status": "passed",
+        "review_required": True,
+        "sources": [{} for _ in range(source_count)],
+    }
+    files = {
+        **{f"prepared-{number:02d}.wav": mono_wav_bytes(0.1) for number in range(1, source_count + 1)},
+        "voice-training.wav": mono_wav_bytes(0.1 * source_count),
+        "voice-segments.zip": segment_output.getvalue(),
+        "voice-preparation-report.json": json.dumps(report).encode(),
+    }
+    return zip_bytes(files)
+
+
 def zip_bytes(files: dict[str, bytes]) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
@@ -178,12 +209,8 @@ class ExecutorTest(unittest.TestCase):
                 )
 
     def test_zip_requires_exact_safe_members(self) -> None:
-        output = io.BytesIO()
-        with zipfile.ZipFile(output, "w") as archive:
-            archive.writestr("instrumental.wav", b"instrumental")
-            archive.writestr("vocal.wav", b"vocal")
         extracted = extract_expected_zip(
-            output.getvalue(),
+            zip_bytes({"instrumental.wav": b"instrumental", "vocal.wav": b"vocal"}),
             {"instrumental.wav": "audio/wav", "vocal.wav": "audio/wav"},
         )
         self.assertEqual(extracted["vocal.wav"], b"vocal")
@@ -310,6 +337,65 @@ class ExecutorTest(unittest.TestCase):
             )
             self.assertEqual(len(outputs), 3)
             self.assertEqual(store.read(outputs[2].artifact_id, "voice-project")[1], b"validation")
+
+    def test_voice_preparation_posts_ordered_sources_and_persists_review_outputs(self) -> None:
+        seen_filenames: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = request.read()
+            for filename in ("first.m4a", "second.wav"):
+                self.assertIn(filename.encode(), body)
+                seen_filenames.append(filename)
+            return httpx.Response(200, content=voice_preparation_zip(2))
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = ArtifactStore(Path(directory))
+            first = store.create(
+                project_id="voice-project",
+                operation="asset.import",
+                filename="first.m4a",
+                media_type="audio/mp4",
+                payload=b"first",
+            )
+            second = store.create(
+                project_id="voice-project",
+                operation="asset.import",
+                filename="second.wav",
+                media_type="audio/wav",
+                payload=b"second",
+            )
+            executor = MusicExecutor(
+                store,
+                ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
+                httpx.Client(transport=httpx.MockTransport(handler)),
+            )
+            outputs = executor.prepare_voice(
+                project_id="voice-project",
+                audio_asset_ids=[first.artifact_id, second.artifact_id],
+            )
+            self.assertEqual(seen_filenames, ["first.m4a", "second.wav"])
+            self.assertEqual(
+                [record.filename for record in outputs],
+                [
+                    "prepared-01.wav",
+                    "prepared-02.wav",
+                    "voice-training.wav",
+                    "voice-segments.zip",
+                    "voice-preparation-report.json",
+                ],
+            )
+            self.assertTrue(all(record.operation == "voice.prepare" for record in outputs))
+
+            with self.assertRaisesRegex(ValueError, "duplicates"):
+                executor.prepare_voice(
+                    project_id="voice-project",
+                    audio_asset_ids=[first.artifact_id, first.artifact_id],
+                )
+            with self.assertRaises(ArtifactError):
+                executor.prepare_voice(
+                    project_id="another-project",
+                    audio_asset_ids=[first.artifact_id],
+                )
 
     def test_aligned_lrc_must_preserve_lines_and_strict_timestamps(self) -> None:
         valid = "[00:01.000]第一句\n[00:02.250]第二句\n".encode()

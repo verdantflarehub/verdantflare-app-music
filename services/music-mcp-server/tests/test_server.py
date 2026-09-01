@@ -76,6 +76,7 @@ class ServerTest(unittest.TestCase):
                 "asset.import",
                 "music.generate",
                 "stems.separate",
+                "voice.prepare",
                 "voice.train",
                 "voice.convert",
                 "lyrics.align",
@@ -96,6 +97,7 @@ class ServerTest(unittest.TestCase):
                     "max_duration_seconds",
                 },
                 "stems.separate": {"project_id", "audio_asset_id"},
+                "voice.prepare": {"project_id", "audio_asset_ids"},
                 "voice.train": {"project_id", "audio_asset_id", "model_id", "epochs", "batch_size"},
                 "voice.convert": {
                     "project_id",

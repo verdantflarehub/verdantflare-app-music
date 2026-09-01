@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import subprocess
@@ -13,6 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from .catalog import InvalidModelId, VoiceModelCatalog, VoiceModelNotFound
+from .preparation import PreparationFailed, PreparationSource, VoiceDatasetPreparer
 from .service import ConversionFailed, RVCService
 from .training import RVCTrainer, TrainingFailed
 
@@ -21,10 +23,12 @@ VOICE_ROOT = Path(os.environ.get("RVC_VOICE_ROOT", "/models/rvc/voices"))
 RUNTIME_ROOT = Path(os.environ.get("RVC_RUNTIME_ROOT", "/models/rvc/runtime"))
 TEMP_ROOT = Path(os.environ.get("RVC_TEMP_ROOT", "/tmp/rvc"))
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_PREPARATION_BYTES = 300 * 1024 * 1024
 
 catalog = VoiceModelCatalog(VOICE_ROOT)
 service = RVCService(catalog)
 trainer = RVCTrainer(catalog=catalog, runtime_root=RUNTIME_ROOT)
+preparer = VoiceDatasetPreparer()
 app = FastAPI(title="VerdantFlare Music RVC API", version="1.0.0")
 
 
@@ -60,16 +64,66 @@ def list_voice_models() -> dict[str, list[dict[str, object]]]:
     }
 
 
-def _write_upload(upload: UploadFile, destination: Path, maximum_bytes: int) -> None:
+def _write_upload(upload: UploadFile, destination: Path, maximum_bytes: int) -> tuple[int, str]:
     total = 0
+    digest = hashlib.sha256()
     with destination.open("wb") as output:
         while chunk := upload.file.read(1024 * 1024):
             total += len(chunk)
             if total > maximum_bytes:
                 raise HTTPException(status_code=413, detail="audio exceeds upload limit")
             output.write(chunk)
+            digest.update(chunk)
     if total == 0:
         raise HTTPException(status_code=422, detail="audio is empty")
+    return total, digest.hexdigest()
+
+
+def _safe_upload_name(upload: UploadFile, number: int) -> str:
+    value = (upload.filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not value or len(value.encode("utf-8")) > 255:
+        return f"recording-{number:02d}.audio"
+    return value
+
+
+@app.post("/v1/voice-datasets/prepare")
+def prepare_voice_dataset(audio: Annotated[list[UploadFile], File()]) -> Response:
+    if not 1 <= len(audio) <= 20:
+        raise HTTPException(status_code=422, detail="voice preparation requires 1-20 recordings")
+    TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary_directory:
+            root = Path(temporary_directory)
+            sources: list[PreparationSource] = []
+            total_bytes = 0
+            for number, upload in enumerate(audio, start=1):
+                input_path = root / f"input-{number:02d}.audio"
+                size, digest = _write_upload(
+                    upload,
+                    input_path,
+                    MAX_PREPARATION_BYTES - total_bytes,
+                )
+                total_bytes += size
+                sources.append(
+                    PreparationSource(
+                        filename=_safe_upload_name(upload, number),
+                        path=input_path,
+                        sha256=digest,
+                    )
+                )
+            archive_path = root / "voice-preparation.zip"
+            preparer.prepare(sources, root / "work", archive_path)
+            payload = archive_path.read_bytes()
+    except PreparationFailed as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        for upload in audio:
+            upload.file.close()
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="voice-preparation.zip"'},
+    )
 
 
 @app.post("/v1/voice-models/train")
