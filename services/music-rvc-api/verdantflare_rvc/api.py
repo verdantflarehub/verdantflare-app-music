@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
+import multiprocessing
 import os
 import subprocess
 import tempfile
+import threading
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -14,7 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
 
 from .catalog import InvalidModelId, VoiceModelCatalog, VoiceModelNotFound
-from .preparation import PreparationFailed, PreparationSource, VoiceDatasetPreparer
+from .preparation import PreparationFailed, PreparationSource, prepare_voice_dataset_archive
 from .service import ConversionFailed, RVCService
 from .training import RVCTrainer, TrainingFailed
 
@@ -28,7 +31,7 @@ MAX_PREPARATION_BYTES = 300 * 1024 * 1024
 catalog = VoiceModelCatalog(VOICE_ROOT)
 service = RVCService(catalog)
 trainer = RVCTrainer(catalog=catalog, runtime_root=RUNTIME_ROOT)
-preparer = VoiceDatasetPreparer()
+preparation_lock = threading.Lock()
 app = FastAPI(title="VerdantFlare Music RVC API", version="1.0.0")
 
 
@@ -112,7 +115,16 @@ def prepare_voice_dataset(audio: Annotated[list[UploadFile], File()]) -> Respons
                     )
                 )
             archive_path = root / "voice-preparation.zip"
-            preparer.prepare(sources, root / "work", archive_path)
+            with preparation_lock, ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
+            ) as executor:
+                executor.submit(
+                    prepare_voice_dataset_archive,
+                    sources,
+                    root / "work",
+                    archive_path,
+                ).result()
             payload = archive_path.read_bytes()
     except PreparationFailed as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

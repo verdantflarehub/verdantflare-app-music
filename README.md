@@ -159,7 +159,7 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 部署前必须同时满足：
 
-1. 六个版本镜像均由对应 `release` workflow 成功发布。新版本 `music-mcp-server-v0.6.0`、`music-rvc-api-v0.2.0` 和 `music-lyrics-aligner-api-v0.1.0` 必须先完成流水线。
+1. 六个版本镜像均由对应 `release` workflow 成功发布。新版本 `music-mcp-server-v0.6.0`、`music-rvc-api-v0.2.1` 和 `music-lyrics-aligner-api-v0.1.0` 必须先完成流水线。
 2. Aliyun `wod/verdantflare-app` 中的六个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
 3. `hostpath` StorageClass 可用，`10.241.109.7:/data` 至少有 270 GiB 可用容量。
 4. `10.241.109.7` 为 Ready，且至少五张完整 RTX 4090 可用于同时运行 Music3、UVR5、RVC 和歌词对齐。

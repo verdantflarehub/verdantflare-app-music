@@ -478,3 +478,11 @@ class VoiceDatasetPreparer:
                 )
                 + "\n",
             )
+
+
+def prepare_voice_dataset_archive(
+    sources: list[PreparationSource],
+    work_root: Path,
+    archive_path: Path,
+) -> None:
+    VoiceDatasetPreparer().prepare(sources, work_root, archive_path)
