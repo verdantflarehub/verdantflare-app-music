@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import audioop
 import hashlib
 import json
 import math
 import shutil
 import subprocess
+import sys
 import wave
 import zipfile
+from array import array
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,11 +64,27 @@ def _verify_pcm(path: Path) -> tuple[int, int]:
         raise PreparationFailed("prepared audio is not a valid WAV") from error
 
 
+def _pcm16_samples(payload: bytes) -> array[int]:
+    samples = array("h")
+    samples.frombytes(payload)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples
+
+
+def _pcm16_bytes(samples: array[int]) -> bytes:
+    if sys.byteorder == "little":
+        return samples.tobytes()
+    little_endian = array("h", samples)
+    little_endian.byteswap()
+    return little_endian.tobytes()
+
+
 def _pcm_peak(path: Path) -> int:
     peak = 0
     with wave.open(str(path), "rb") as source:
         while chunk := source.readframes(SAMPLE_RATE * 10):
-            peak = max(peak, audioop.max(chunk, SAMPLE_WIDTH))
+            peak = max(peak, max((abs(sample) for sample in _pcm16_samples(chunk)), default=0))
     return peak
 
 
@@ -75,7 +92,14 @@ def _scale_pcm(source_path: Path, output_path: Path, gain: float) -> None:
     with wave.open(str(source_path), "rb") as source, wave.open(str(output_path), "wb") as output:
         output.setparams(source.getparams())
         while chunk := source.readframes(SAMPLE_RATE * 10):
-            output.writeframes(audioop.mul(chunk, SAMPLE_WIDTH, gain))
+            scaled = array(
+                "h",
+                (
+                    max(-32768, min(32767, round(sample * gain)))
+                    for sample in _pcm16_samples(chunk)
+                ),
+            )
+            output.writeframes(_pcm16_bytes(scaled))
 
 
 def _quiet_windows(path: Path) -> tuple[list[bool], int, int]:
@@ -85,7 +109,9 @@ def _quiet_windows(path: Path) -> tuple[list[bool], int, int]:
     with wave.open(str(path), "rb") as source:
         total_frames = source.getnframes()
         while chunk := source.readframes(window_frames):
-            quiet.append(audioop.rms(chunk, SAMPLE_WIDTH) < threshold)
+            samples = _pcm16_samples(chunk)
+            rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+            quiet.append(rms < threshold)
     return quiet, window_frames, total_frames
 
 
