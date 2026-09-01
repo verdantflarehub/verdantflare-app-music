@@ -20,6 +20,10 @@ revision that introduced SGLang's measured RTX 4090 results before reinstalling
 its diffusion package; the old API entrypoint and patched v0.5.18 Python code
 are not used at runtime.
 
+The server selects `--model-type diffusion` explicitly because the benchmark
+PVC contains a deliberately partial local model snapshot. Automatic backend
+detection otherwise treats that local root as an LLM checkpoint.
+
 ## Fixed 4090 placement
 
 Every run uses one GPU, TP1, Ulysses1, exact FlashAttention, eager execution,

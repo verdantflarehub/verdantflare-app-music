@@ -64,6 +64,7 @@ fi
 mkdir -p "${output_path}"
 
 exec /opt/nvidia/nvidia_entrypoint.sh sglang serve \
+    --model-type diffusion \
     --model-path "${model_path}" \
     --model-variant ref2va \
     --num-gpus 1 \
