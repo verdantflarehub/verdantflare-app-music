@@ -11,7 +11,7 @@ API and not a ComfyUI installation.
 | SGLang | `bbbcbf9418f0d8fbea968d96f3b470f5b883bac3` |
 | Base CUDA image | `registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-api-v0.1.1` |
 | comfy-kitchen | `0.2.31` |
-| FlashInfer Python/cubin | `0.6.18` |
+| FlashInfer Python/cubin | `0.6.17` |
 | MiniMax H3 | `42ed227ee7df40d41602854ae760620d6eb651fe` |
 
 The base image only supplies the CUDA environment and build dependencies

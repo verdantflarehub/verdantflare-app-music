@@ -5,13 +5,13 @@ FROM ${BASE_IMAGE}
 
 ARG SGLANG_COMMIT=bbbcbf9418f0d8fbea968d96f3b470f5b883bac3
 ARG COMFY_KITCHEN_VERSION=0.2.31
-ARG BENCHMARK_FLASHINFER_VERSION=0.6.18
+ARG BENCHMARK_FLASHINFER_VERSION=0.6.17
 
 USER root
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax H3 SGLang RTX 4090 benchmark"
-LABEL org.opencontainers.image.version="0.1.3"
+LABEL org.opencontainers.image.version="0.1.4"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-H3-Community"
 LABEL org.opencontainers.image.sglang.revision="${SGLANG_COMMIT}"
 
@@ -29,6 +29,7 @@ RUN git -C /sgl-workspace/sglang fetch --depth=1 \
     python3 -m pip install --no-cache-dir \
         "flashinfer-cubin==${BENCHMARK_FLASHINFER_VERSION}" \
         --index-url https://flashinfer.ai/whl && \
+    python3 -c "from importlib.metadata import version; expected='${BENCHMARK_FLASHINFER_VERSION}'; assert version('flashinfer-python') == expected; assert version('flashinfer-cubin') == expected; import flashinfer" && \
     python3 -m pip install --no-cache-dir "comfy-kitchen==${COMFY_KITCHEN_VERSION}"
 
 RUN apt-get update && \
