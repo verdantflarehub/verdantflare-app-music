@@ -8,16 +8,17 @@ API and not a ComfyUI installation.
 
 | Component | Version |
 | --- | --- |
-| SGLang | `175973d8346e0309c293069c08364f5a4bc799dd` |
+| SGLang | `bbbcbf9418f0d8fbea968d96f3b470f5b883bac3` |
 | Base CUDA image | `registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-api-v0.1.1` |
 | comfy-kitchen | `0.2.31` |
 | FlashInfer Python/cubin | `0.6.18` |
 | MiniMax H3 | `42ed227ee7df40d41602854ae760620d6eb651fe` |
 
 The base image only supplies the CUDA environment and build dependencies
-already validated on the target cluster. The Docker build checks out the exact
-SGLang source revision before reinstalling its diffusion package; the old API
-entrypoint and patched v0.5.18 Python code are not used at runtime.
+already validated on the target cluster. The Docker build checks out the
+revision that introduced SGLang's measured RTX 4090 results before reinstalling
+its diffusion package; the old API entrypoint and patched v0.5.18 Python code
+are not used at runtime.
 
 ## Fixed 4090 placement
 
@@ -39,9 +40,8 @@ the complete SGLang server log. Existing output directories are rejected so a
 rerun cannot overwrite evidence.
 
 Before starting SGLang, the runner waits up to five minutes for external CUDA
-contexts left by the previous workload to leave the HAMI-assigned GPU. This is
-required because `kitchen_int8` temporarily fills almost all 24 GiB while it
-loads and quantizes the Transformer.
+contexts left by the previous workload to leave the HAMI-assigned GPU. This
+keeps model-load memory measurements isolated from a preceding workload.
 
 The Kubernetes jobs and serial execution instructions live in
 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/benchmarks/` in the

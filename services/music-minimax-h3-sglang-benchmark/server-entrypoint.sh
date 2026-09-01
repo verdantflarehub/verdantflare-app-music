@@ -38,7 +38,7 @@ case "${quantization}" in
     bf16)
         ;;
     kitchen_int8)
-        quantization_args=(--component-quantizations.transformer kitchen_int8)
+        quantization_args=(--quantization kitchen_int8)
         ;;
     *)
         echo "H3_QUANTIZATION must be bf16 or kitchen_int8, got: ${quantization}" >&2

@@ -3,7 +3,7 @@
 ARG BASE_IMAGE=registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-api-v0.1.1
 FROM ${BASE_IMAGE}
 
-ARG SGLANG_COMMIT=175973d8346e0309c293069c08364f5a4bc799dd
+ARG SGLANG_COMMIT=bbbcbf9418f0d8fbea968d96f3b470f5b883bac3
 ARG COMFY_KITCHEN_VERSION=0.2.31
 ARG BENCHMARK_FLASHINFER_VERSION=0.6.18
 
@@ -11,14 +11,14 @@ USER root
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax H3 SGLang RTX 4090 benchmark"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.1.2"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-H3-Community"
 LABEL org.opencontainers.image.sglang.revision="${SGLANG_COMMIT}"
 
 # The released v0.1.1 service image supplies the CUDA 13 runtime and the
 # v0.5.18 build dependencies already validated on the target cluster.
-# Replace its source tree with the exact post-release revision used by the
-# official RTX 4090 cookbook, then lock the optional INT8 kernel dependency.
+# Replace its source tree with the revision that introduced the official RTX
+# 4090 measurements, then lock the optional INT8 kernel dependency.
 RUN git -C /sgl-workspace/sglang fetch --depth=1 \
         https://github.com/sgl-project/sglang.git "${SGLANG_COMMIT}" && \
     git -C /sgl-workspace/sglang checkout --detach --force FETCH_HEAD && \
