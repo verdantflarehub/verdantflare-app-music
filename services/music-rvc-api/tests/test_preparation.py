@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 import struct
 import tempfile
 import unittest
@@ -39,7 +40,10 @@ class VoiceDatasetPreparerTest(unittest.TestCase):
             root = Path(directory)
             source = root / "silence.wav"
             write_fixture(source, [(2.0, 0)])
-            with self.assertRaisesRegex(PreparationFailed, "no audio"):
+            with (
+                patch("verdantflare_rvc.preparation._decode", side_effect=shutil.copyfile),
+                self.assertRaisesRegex(PreparationFailed, "no audio"),
+            ):
                 VoiceDatasetPreparer().prepare(
                     [PreparationSource("silence.wav", source, hashlib.sha256(source.read_bytes()).hexdigest())],
                     root / "work",
@@ -78,6 +82,7 @@ class VoiceDatasetPreparerTest(unittest.TestCase):
             }
 
             with (
+                patch("verdantflare_rvc.preparation._decode", side_effect=shutil.copyfile),
                 patch("verdantflare_rvc.preparation._probe", return_value={"format": {"duration": "5.2"}}),
                 patch("verdantflare_rvc.preparation._loudness", return_value=metrics),
                 patch("verdantflare_rvc.preparation._pitch", return_value=pitch),

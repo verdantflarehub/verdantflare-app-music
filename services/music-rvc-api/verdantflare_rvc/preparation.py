@@ -48,6 +48,30 @@ def _duration(path: Path) -> float:
         return source.getnframes() / source.getframerate()
 
 
+def _decode(source_path: Path, output_path: Path) -> None:
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(source_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            str(SAMPLE_RATE),
+            "-c:a",
+            "pcm_s16le",
+            str(output_path),
+        ],
+        check=False,
+    )
+    if result.returncode:
+        raise PreparationFailed("recording could not be decoded")
+
+
 def _verify_pcm(path: Path) -> tuple[int, int]:
     try:
         with wave.open(str(path), "rb") as source:
@@ -335,27 +359,10 @@ class VoiceDatasetPreparer:
 
         for source_number, source in enumerate(sources, start=1):
             decoded = work_root / f"decoded-{source_number:02d}.wav"
-            result = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-v",
-                    "error",
-                    "-y",
-                    "-i",
-                    str(source.path),
-                    "-vn",
-                    "-ac",
-                    "1",
-                    "-ar",
-                    str(SAMPLE_RATE),
-                    "-c:a",
-                    "pcm_s16le",
-                    str(decoded),
-                ],
-                check=False,
-            )
-            if result.returncode:
-                raise PreparationFailed(f"recording {source_number} could not be decoded")
+            try:
+                _decode(source.path, decoded)
+            except PreparationFailed as error:
+                raise PreparationFailed(f"recording {source_number} could not be decoded") from error
             _verify_pcm(decoded)
             peak = _pcm_peak(decoded)
             target_peak = ((1 << 15) - 1) * 10 ** (TARGET_SAMPLE_PEAK_DBFS / 20)
