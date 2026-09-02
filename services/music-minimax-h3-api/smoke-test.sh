@@ -31,7 +31,7 @@ video_id="$(
     "duration_seconds": 4.0
   },
   "num_outputs_per_prompt": 1,
-  "num_inference_steps": 50,
+  "num_inference_steps": 21,
   "flow_shift": 12.0,
   "audio_flow_shift": 3.0,
   "seed": 7

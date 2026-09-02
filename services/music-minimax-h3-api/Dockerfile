@@ -1,26 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
-FROM lmsysorg/sglang:v0.5.18-cu130
+ARG BASE_IMAGE=registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-sglang-benchmark-v0.1.5
+FROM ${BASE_IMAGE}
 
 USER root
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
-LABEL org.opencontainers.image.title="VerdantFlare MiniMax H3 Ref2VA API"
-LABEL org.opencontainers.image.version="0.1.1"
+LABEL org.opencontainers.image.title="VerdantFlare MiniMax H3 Ref2VA Full INT8 API"
+LABEL org.opencontainers.image.version="0.2.0"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-H3-Community"
 
-# The tagged SGLang image contains the matching source tree. Install its
-# diffusion extras without following a moving Git branch.
-RUN python3 -m pip install --no-cache-dir -e "/sgl-workspace/sglang/python[diffusion]"; \
-    python3 -c "import sglang; assert sglang.__version__ == '0.5.18'"
-
-COPY patches/sglang-17313cf4-minimax-h3-audio-forward-context.patch /tmp/
-RUN git -C /sgl-workspace/sglang apply --check \
-        /tmp/sglang-17313cf4-minimax-h3-audio-forward-context.patch; \
-    git -C /sgl-workspace/sglang apply \
-        /tmp/sglang-17313cf4-minimax-h3-audio-forward-context.patch; \
-    rm /tmp/sglang-17313cf4-minimax-h3-audio-forward-context.patch
-
+# Promote the exact SGLang/FlashInfer/comfy-kitchen image validated by the
+# serialized Full INT8 benchmark; only the long-running service entrypoint differs.
 COPY entrypoint.sh /usr/local/bin/music-minimax-h3-entrypoint
 COPY smoke-test.sh /usr/local/bin/music-minimax-h3-smoke-test
 COPY NOTICE.upstream.md /usr/share/licenses/music-minimax-h3-api/NOTICE.upstream.md
@@ -30,7 +21,7 @@ RUN chmod 0755 \
 
 ENV MODEL_PATH=/models/MiniMax-H3 \
     HF_HOME=/models/.cache/huggingface \
-    H3_VISIBLE_GPU_COUNT=8
+    H3_VISIBLE_GPU_COUNT=1
 
 VOLUME ["/models/MiniMax-H3", "/data/projects"]
 
