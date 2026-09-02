@@ -141,7 +141,7 @@ submit_run() {
         }
         + if $perf_dump_path == "" then {} else {
           perf_dump_path: $perf_dump_path
-        }' >"${request_file}"
+        } end' >"${request_file}"
 
     start_ns="$(date +%s%N)"
     curl --fail-with-body --silent --show-error \
