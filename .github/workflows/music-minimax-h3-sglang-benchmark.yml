@@ -16,7 +16,7 @@ concurrency:
 
 env:
   SERVICE: music-minimax-h3-sglang-benchmark
-  VERSION: 0.1.5
+  VERSION: 0.1.6
 
 jobs:
   check:
