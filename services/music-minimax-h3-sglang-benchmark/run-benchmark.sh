@@ -51,6 +51,10 @@ while true; do
 done
 
 export H3_SERVER_OUTPUT_PATH="${benchmark_root}/server-output"
+# CUDA work is asynchronous across pipeline stages. Synchronize stage boundaries
+# so DiT tail work is not charged to VAE decoding; only timed requests persist
+# the resulting stage metrics.
+export SGLANG_DIFFUSION_SYNC_STAGE_PROFILING=1
 music-minimax-h3-sglang-server >"${benchmark_root}/server.log" 2>&1 &
 server_pid=$!
 monitor_pid=""
@@ -99,9 +103,15 @@ submit_run() {
     local create_file="${run_dir}/create.json"
     local status_file="${run_dir}/status.json"
     local video_file="${run_dir}/output.mp4"
+    local perf_file="${run_dir}/perf.json"
+    local stage_summary_file="${run_dir}/stage-summary.json"
+    local perf_dump_path=""
     local video_id status start_ns end_ns elapsed_seconds
 
     mkdir -p "${run_dir}"
+    if [[ "${run_name}" == "timed" ]]; then
+        perf_dump_path="${perf_file}"
+    fi
     jq -n \
         --arg model "MiniMaxAI/MiniMax-H3" \
         --arg prompt "${prompt}" \
@@ -111,6 +121,7 @@ submit_run() {
         --argjson short_edge "${short_edge}" \
         --argjson sigma_points "${sigma_points}" \
         --argjson seed "${seed}" \
+        --arg perf_dump_path "${perf_dump_path}" \
         '{
           model: $model,
           task: "ref2va",
@@ -127,6 +138,9 @@ submit_run() {
           flow_shift: 12.0,
           audio_flow_shift: 3.0,
           seed: $seed
+        }
+        + if $perf_dump_path == "" then {} else {
+          perf_dump_path: $perf_dump_path
         }' >"${request_file}"
 
     start_ns="$(date +%s%N)"
@@ -169,6 +183,43 @@ submit_run() {
         "${base_url}/v1/videos/${video_id}/content" --output "${video_file}"
     ffprobe -v error -show_streams -show_format -of json "${video_file}" \
         >"${run_dir}/ffprobe.json"
+    if [[ -n "${perf_dump_path}" ]]; then
+        [[ -s "${perf_file}" ]] || {
+            echo "SGLang did not write the timed stage profile: ${perf_file}" >&2
+            return 1
+        }
+        jq -e '
+            (.total_duration_ms | type == "number" and . > 0) and
+            (.steps | type == "array" and length > 0) and
+            ([.steps[].name] | any(. == "MiniMaxH3VisualEncodingStage")) and
+            ([.steps[].name] | any(. == "MiniMaxH3DecodingStage"))
+        ' "${perf_file}" >/dev/null || {
+            echo "SGLang stage profile is missing required MiniMax H3 stages: ${perf_file}" >&2
+            return 1
+        }
+        jq '
+        ([
+            .steps[]
+            | select(
+                .name == "MiniMaxH3VisualEncodingStage" or
+                .name == "MiniMaxH3DecodingStage"
+            )
+        ]) as $vae_boundary_stages
+        | {
+            request_id,
+            total_duration_ms,
+            stages: .steps,
+            vae_boundary_stages: $vae_boundary_stages,
+            vae_boundary_total_duration_ms: (
+                $vae_boundary_stages | map(.duration_ms) | add
+            ),
+            vae_boundary_pipeline_share: (
+                ($vae_boundary_stages | map(.duration_ms) | add)
+                / .total_duration_ms
+            ),
+            memory_checkpoints
+        }' "${perf_file}" >"${stage_summary_file}"
+    fi
     elapsed_seconds="$(awk -v start="${start_ns}" -v end="${end_ns}" \
         'BEGIN { printf "%.3f", (end - start) / 1000000000 }')"
     jq -n \
@@ -194,7 +245,9 @@ submit_run() {
           sigma_points: $sigma_points,
           nfe: $nfe,
           seed: $seed,
-          elapsed_seconds: $elapsed_seconds
+          elapsed_seconds: $elapsed_seconds,
+          synchronized_stage_boundaries: true,
+          stage_profile_persisted: ($run_name == "timed")
         }' >"${run_dir}/result.json"
 }
 

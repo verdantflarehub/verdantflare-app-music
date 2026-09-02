@@ -43,11 +43,28 @@ fewer DiT evaluation because the grid contains the terminal zero: 50 points is
 
 ## Output contract
 
-Each case runs a seed-0 warmup followed by the timed seed-7 request. The output
-directory contains the source reference and SHA-256, request and status JSON,
-MP4 and ffprobe JSON, elapsed wall time, GPU samples, cgroup peak memory, and
-the complete SGLang server log. Existing output directories are rejected so a
-rerun cannot overwrite evidence.
+Each case runs a seed-0 warmup followed by the timed seed-7 request. The server
+synchronizes pipeline stage boundaries so asynchronous DiT tail work is not
+incorrectly charged to VAE decoding; only the timed request persists those
+measurements. Its run directory contains the complete `perf.json` and a compact
+`stage-summary.json`; the latter retains all pipeline stages, separately selects
+`MiniMaxH3VisualEncodingStage` and `MiniMaxH3DecodingStage` as the two video-VAE
+boundaries, and reports their combined duration and share of pipeline time.
+These boundary figures are an upper bound for TensorRT video-VAE savings:
+visual encoding also includes reference preprocessing, while the decoding stage
+also includes audio-VAE decode and output normalization. If the boundary share
+justifies a TensorRT experiment, instrument the individual video-VAE calls in
+that experiment rather than treating the boundary total as pure VAE time.
+
+Synchronization makes the stage attribution usable but adds stage-boundary
+barriers. Compare elapsed time only between runs produced by the same
+instrumented benchmark version; do not compare it directly with older
+unsynchronized wall-time results.
+
+The output directory also contains the source reference and SHA-256, request
+and status JSON, MP4 and ffprobe JSON, elapsed wall time, GPU samples, cgroup
+peak memory, and the complete SGLang server log. Existing output directories
+are rejected so a rerun cannot overwrite evidence.
 
 Before starting SGLang, the runner waits up to five minutes for external CUDA
 contexts left by the previous workload to leave the HAMI-assigned GPU. This

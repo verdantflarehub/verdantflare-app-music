@@ -11,7 +11,7 @@ USER root
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax H3 SGLang RTX 4090 benchmark"
-LABEL org.opencontainers.image.version="0.1.5"
+LABEL org.opencontainers.image.version="0.1.6"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-H3-Community"
 LABEL org.opencontainers.image.sglang.revision="${SGLANG_COMMIT}"
 
