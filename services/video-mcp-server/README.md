@@ -23,5 +23,8 @@ The MCP never returns Runtime task IDs, internal service URLs, node names, GPU d
 | `VIDEO_MCP_ALLOWED_ORIGINS` | loopback only |
 | `VIDEO_MCP_RUNTIME_BASE_URL` | `http://video-mcp-server:8000` |
 | `H3_RUNTIME_URL` | `http://music-minimax-h3-api:8000` |
-| `H3_RUNTIME_VERSION` | `music-minimax-h3-api-v0.1.1` |
+| `H3_RUNTIME_VERSION` | `music-minimax-h3-api-v0.2.0` |
 
+`video.generate` uses 21 sigma points, which corresponds to the approved Base
+20 NFE profile. This parameter is owned by the service and is not exposed as a
+caller-controlled option.

@@ -41,6 +41,7 @@ class VideoMCPTest(unittest.TestCase):
             body = json.loads(request.content)
             self.assertEqual(body["conditions"][0]["type"], "image")
             self.assertIn("<Picture 1>", body["prompt"])
+            self.assertEqual(body["num_inference_steps"], 21)
             return httpx.Response(200, json={"id": "runtime-secret-id"})
 
         executor = VideoExecutor(self.artifacts, self.tasks, httpx.Client(transport=httpx.MockTransport(handler)))

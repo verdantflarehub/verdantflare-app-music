@@ -34,7 +34,7 @@ class VideoExecutor:
         self.tasks = tasks
         self.runtime_url = os.environ.get("H3_RUNTIME_URL", "http://music-minimax-h3-api:8000").rstrip("/")
         self.runtime_artifact_url = os.environ.get("VIDEO_MCP_RUNTIME_BASE_URL", "http://video-mcp-server:8000").rstrip("/")
-        self.runtime_version = os.environ.get("H3_RUNTIME_VERSION", "music-minimax-h3-api-v0.1.1")
+        self.runtime_version = os.environ.get("H3_RUNTIME_VERSION", "music-minimax-h3-api-v0.2.0")
         self.allowed_origins = frozenset(x.strip() for x in os.environ.get("VIDEO_ASSET_IMPORT_ORIGINS", "").split(",") if x.strip())
         self.client = client or httpx.Client(timeout=httpx.Timeout(connect=10, read=3600, write=600, pool=10), follow_redirects=False)
 
@@ -116,7 +116,7 @@ class VideoExecutor:
         payload = {"model": "MiniMaxAI/MiniMax-H3", "task": "ref2va", "prompt": compiled_prompt,
                    "seconds": duration_seconds, "conditions": conditions,
                    "target": {"short_edge": 768, "aspect_ratio": aspect_ratio, "duration_seconds": float(duration_seconds)},
-                   "num_outputs_per_prompt": 1, "num_inference_steps": 50, "flow_shift": 12.0,
+                   "num_outputs_per_prompt": 1, "num_inference_steps": 21, "flow_shift": 12.0,
                    "audio_flow_shift": 3.0, "seed": 7}
         try:
             response = self.client.post(f"{self.runtime_url}/v1/videos", json=payload)
