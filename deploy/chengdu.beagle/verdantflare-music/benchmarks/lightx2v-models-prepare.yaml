@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: h3-lightx2v-models-prepare
+  namespace: verdantflare-music
+  labels:
+    app.kubernetes.io/name: music-minimax-h3-lightx2v-benchmark
+    app.kubernetes.io/component: model-prepare
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: music-minimax-h3-lightx2v-benchmark
+        app.kubernetes.io/component: model-prepare
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: 10.241.109.6
+      containers:
+        - name: prepare
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0
+          imagePullPolicy: IfNotPresent
+          command: [/usr/local/bin/prepare-lightx2v-models]
+          env:
+            - name: HF_ENDPOINT
+              value: https://hf-mirror.com
+            - name: HF_HUB_DISABLE_XET
+              value: "1"
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: minimax-h3-models

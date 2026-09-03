@@ -28,10 +28,12 @@ RUN set -eux; \
 
 COPY run-ref2va-benchmark.sh /usr/local/bin/run-ref2va-benchmark
 COPY prepare-models.sh /usr/local/bin/prepare-lightx2v-models
+COPY prepare-approved-input.py /usr/local/bin/prepare-approved-lightx2v-input
 COPY NOTICE.upstream.md /usr/share/licenses/music-minimax-h3-lightx2v-benchmark/NOTICE.upstream.md
 RUN chmod 0755 \
     /usr/local/bin/run-ref2va-benchmark \
-    /usr/local/bin/prepare-lightx2v-models
+    /usr/local/bin/prepare-lightx2v-models \
+    /usr/local/bin/prepare-approved-lightx2v-input
 
 ENV H3_MODEL_PATH=/models/MiniMax-H3-Diffusers \
     H3_LORA_PATH=/models/MiniMax-H3-Turbo/minimax_h3_ref2v_turbo_4step_v0.1_bf16.safetensors \
