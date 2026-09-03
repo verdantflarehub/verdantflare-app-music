@@ -47,7 +47,8 @@ actual_lora_sha256="$(sha256sum "${lora_path}" | awk '{print $1}')"
 [[ "${actual_lora_sha256}" == "${expected_lora_sha256}" ]] || \
     fail "unexpected LoRA SHA-256: ${actual_lora_sha256}"
 
-readonly run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+readonly run_id
 readonly run_dir="${output_dir}/${run_id}"
 readonly generated_dir="${run_dir}/generated"
 mkdir -p "${generated_dir}"
@@ -57,8 +58,10 @@ readonly inference_log="${run_dir}/inference.log"
 readonly resource_log="${run_dir}/resource-time.txt"
 readonly media_json="${run_dir}/media.json"
 readonly manifest_json="${run_dir}/manifest.json"
-readonly started_epoch="$(date +%s)"
-readonly started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+started_epoch="$(date +%s)"
+readonly started_epoch
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+readonly started_at
 
 nvidia-smi \
     --query-gpu=timestamp,index,uuid,name,memory.used,memory.total,utilization.gpu \
@@ -91,8 +94,10 @@ set -e
 cleanup
 trap - EXIT INT TERM
 
-readonly finished_epoch="$(date +%s)"
-readonly finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+finished_epoch="$(date +%s)"
+readonly finished_epoch
+finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+readonly finished_at
 readonly duration_seconds="$((finished_epoch - started_epoch))"
 
 mapfile -d '' generated_files < <(find "${generated_dir}" -maxdepth 1 -type f -name '*.mp4' -print0 | sort -z)
