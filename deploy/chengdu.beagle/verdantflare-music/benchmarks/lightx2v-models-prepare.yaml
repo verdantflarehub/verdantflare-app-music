@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: h3-lightx2v-models-prepare
+  name: h3-lightx2v-models-prepare-v011
   namespace: verdantflare-music
   labels:
     app.kubernetes.io/name: music-minimax-h3-lightx2v-benchmark
@@ -19,9 +19,18 @@ spec:
         kubernetes.io/hostname: 10.241.109.6
       containers:
         - name: prepare
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.1
           imagePullPolicy: IfNotPresent
-          command: [/usr/local/bin/prepare-lightx2v-models]
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              /usr/local/bin/prepare-lightx2v-models
+              test -f /models/MiniMax-H3-Diffusers/modular_model_index.json
+              test -f /models/MiniMax-H3-Diffusers/text_encoder/model.safetensors.index.json
+              test -f /models/MiniMax-H3-Diffusers/transformer_ref/diffusion_pytorch_model.safetensors.index.json
+              test -f /models/MiniMax-H3-Diffusers/vae/diffusion_pytorch_model.safetensors.index.json
+              test -f /models/MiniMax-H3-Diffusers/audio_vae/diffusion_pytorch_model.safetensors
           env:
             - name: HF_ENDPOINT
               value: https://hf-mirror.com
@@ -36,7 +45,11 @@ spec:
               memory: 16Gi
           volumeMounts:
             - name: models
-              mountPath: /models
+              mountPath: /models/MiniMax-H3-Diffusers
+              subPath: MiniMax-H3-Diffusers
+            - name: models
+              mountPath: /models/MiniMax-H3-Turbo
+              subPath: MiniMax-H3-Turbo
       volumes:
         - name: models
           persistentVolumeClaim:

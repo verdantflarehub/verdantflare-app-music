@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: h3-lightx2v-ref2va-4nfe
+  name: h3-lightx2v-ref2va-4nfe-v011
   namespace: verdantflare-music
   labels:
     app.kubernetes.io/name: music-minimax-h3-lightx2v-benchmark
@@ -33,9 +33,14 @@ spec:
                     values: [none]
       initContainers:
         - name: prepare-approved-input
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.1
           imagePullPolicy: IfNotPresent
-          command: [/usr/local/bin/prepare-approved-lightx2v-input]
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              /usr/local/bin/prepare-approved-lightx2v-input
+              install -d "${H3_OUTPUT_DIR}"
           env:
             - name: H3_SOURCE_VIDEO_TASK_ID
               value: video_task_4eba592c251748ff9c3220bcea6b40ca
@@ -45,6 +50,8 @@ spec:
               value: PROD_SMOKE_FULL_INT8_BASE20_20260902/attempt_01
             - name: H3_JOBS_JSON
               value: /data/projects/h3/lightx2v/input-prod-smoke-20260902/ref2va.json
+            - name: H3_OUTPUT_DIR
+              value: /data/projects/h3/benchmarks/2026-09-04-lightx2v-ref2va-4nfe-v012
           resources:
             requests:
               cpu: "1"
@@ -57,7 +64,7 @@ spec:
               mountPath: /data/projects
       containers:
         - name: benchmark
-          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0
+          image: registry.cn-qingdao.aliyuncs.com/wod/verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.1
           imagePullPolicy: IfNotPresent
           env:
             - name: H3_MODEL_PATH
@@ -67,7 +74,7 @@ spec:
             - name: H3_JOBS_JSON
               value: /data/projects/h3/lightx2v/input-prod-smoke-20260902/ref2va.json
             - name: H3_OUTPUT_DIR
-              value: /data/projects/h3/benchmarks/2026-09-03-lightx2v-ref2va-4nfe-v010
+              value: /data/projects/h3/benchmarks/2026-09-04-lightx2v-ref2va-4nfe-v012
             - name: PYTORCH_CUDA_ALLOC_CONF
               value: expandable_segments:True
           resources:
@@ -85,7 +92,12 @@ spec:
               nvidia.com/gpucores: "100"
           volumeMounts:
             - name: models
-              mountPath: /models
+              mountPath: /models/MiniMax-H3-Diffusers
+              subPath: MiniMax-H3-Diffusers
+              readOnly: true
+            - name: models
+              mountPath: /models/MiniMax-H3-Turbo
+              subPath: MiniMax-H3-Turbo
               readOnly: true
             - name: projects
               mountPath: /data/projects

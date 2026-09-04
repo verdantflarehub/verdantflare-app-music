@@ -29,7 +29,7 @@ docker run --rm \
   -e HF_HUB_DISABLE_XET=1 \
   -v /data/models/MiniMax-H3-Diffusers:/models/MiniMax-H3-Diffusers \
   -v /data/models/MiniMax-H3-Turbo:/models/MiniMax-H3-Turbo \
-  verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0
+  verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.1
 ```
 
 准备脚本写入 revision marker 并校验 LoRA SHA-256。模型和 LoRA 仍位于持久化存储，不进入镜像或 Git。
@@ -63,7 +63,7 @@ docker run --rm \
 
 ```bash
 docker build \
-  -t verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0 \
+  -t verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.1 \
   services/music-minimax-h3-lightx2v-benchmark
 ```
 
@@ -77,7 +77,7 @@ docker run --rm \
   -v /data/models/MiniMax-H3-Turbo:/models/MiniMax-H3-Turbo:ro \
   -v /data/benchmarks/h3/input:/inputs:ro \
   -v /data/benchmarks/h3/output:/outputs \
-  verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.0
+  verdantflare-app:music-minimax-h3-lightx2v-benchmark-v0.1.1
 ```
 
 默认入口严格校验模型索引、jobs schema 和 LoRA SHA-256。每次运行在 `/outputs/<UTC run id>/` 生成：
