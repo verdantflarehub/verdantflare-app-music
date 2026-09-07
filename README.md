@@ -68,9 +68,6 @@ mix.master
 .
 ├── .github/
 │   └── workflows/
-├── deploy/
-│   └── chengdu.beagle/
-│       └── verdantflare-music/
 ├── README.md
 ├── services/
 │   ├── music-mcp-server/
@@ -97,7 +94,7 @@ services/<service>/
 
 服务依赖、镜像构建文件和测试保留在各自服务目录内。直接采用成熟上游运行时的 Music3 服务不重复包装 Python 应用；UVR5、RVC 和 Mixer 只包装 VerdantFlare 所需的受控 HTTP 契约。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
 
-`.github/workflows/` 按一个应用一个 YAML 负责测试、构建六个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。`deploy/chengdu.beagle/verdantflare-music/` 保存目标验证集群的声明式 Kubernetes 配置。
+`.github/workflows/` 按一个应用一个 YAML 负责测试、构建六个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。本应用仓库不保存集群部署清单；最终声明式部署由 `verdantflare-design` 的 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/` 统一管理。
 
 UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用锁定版本的成熟上游实现作为算法依赖，但上游公开的 WebUI、CLI 或容器接口不是 VerdantFlare 的服务契约。
 
@@ -170,14 +167,14 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 ```bash
 kubectl --context chengdu.beagle apply \
-  -f deploy/chengdu.beagle/verdantflare-music/namespace.yaml
+  -f deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/namespace.yaml
 ```
 
 双 GPU 探测使用公开 CUDA 镜像，不依赖应用镜像仓库凭据：
 
 ```bash
 kubectl --context chengdu.beagle apply \
-  -f deploy/chengdu.beagle/verdantflare-music/gpu-probe.yaml
+  -f deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/gpu-probe.yaml
 kubectl --context chengdu.beagle -n verdantflare-music \
   wait --for=condition=complete job/music3-dual-gpu-probe --timeout=10m
 kubectl --context chengdu.beagle -n verdantflare-music \
@@ -189,7 +186,7 @@ kubectl --context chengdu.beagle -n verdantflare-music \
 
 ```bash
 kubectl --context chengdu.beagle apply -k \
-  deploy/chengdu.beagle/verdantflare-music
+  deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music
 kubectl --context chengdu.beagle -n verdantflare-music \
   wait --for=condition=Available deployment --all --timeout=60m
 ```
