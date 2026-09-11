@@ -22,7 +22,7 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
 - `verdantflare-music` Skill 位于 `verdantflare-skills/skills/verdantflare-music/`，负责将用户意图转换为制作计划、补全参数、应用审核点并选择 MCP 工具。
 - VerdantFlare Studio 负责展示计划、操作确认、任务、资产、审核和交付状态。
 - Kubernetes 负责服务与 GPU 调度；Music MCP Server 负责项目范围 Artifact 的登记和完整性校验。
-- MiniMax H3、视频生成和 Video MCP 属于 `verdantflare-app-vedio`；Music MCP 不代理或编排视频领域工具。
+- MiniMax H3、视频生成和 Video MCP 属于 `verdantflare-app-video`；Music MCP 不代理或编排视频领域工具。
 
 完整执行边界如下：
 
