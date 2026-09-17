@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 env:
   SERVICE: music-lyrics-aligner-api
-  VERSION: 0.1.0
+  VERSION: 0.1.1
 
 jobs:
   check:
@@ -28,7 +28,8 @@ jobs:
         run: |
           set -euo pipefail
           shellcheck services/${SERVICE}/*.sh
-          python3 -m pip install fastapi==0.116.1 httpx==0.28.1 python-multipart==0.0.20
+          python3 -m pip install --upgrade pip==25.3
+          python3 -m pip install --group services/${SERVICE}/pyproject.toml:test
           python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
     needs: check

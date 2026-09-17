@@ -6,7 +6,7 @@ USER root
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RVC_UPSTREAM_VERSION=2.2.231006
 ARG RVC_COMMIT=9f2f0559e6932c10c48642d404e7d2e771d9db43
-ARG SERVICE_VERSION=0.2.1
+ARG SERVICE_VERSION=0.2.2
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 ARG PYTORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
 
@@ -30,7 +30,7 @@ RUN set -eux; \
 
 WORKDIR /workspace
 
-COPY requirements.txt /tmp/rvc-requirements.txt
+COPY pyproject.toml /tmp/pyproject.toml
 COPY entrypoint.sh /usr/local/bin/music-rvc-entrypoint
 COPY LICENSE.upstream /usr/share/licenses/music-rvc-api/LICENSE.upstream
 COPY verdantflare_rvc /workspace/rvc-api/verdantflare_rvc
@@ -56,7 +56,7 @@ RUN set -eux; \
     pip install --no-cache-dir \
         --index-url "${PYPI_INDEX_URL}" \
         --extra-index-url "${PYTORCH_CUDA_INDEX_URL}" \
-        -r /tmp/rvc-requirements.txt
+        /tmp
 
 # fairseq 0.12.2 and its Hydra dependency use mutable dataclass defaults that
 # Python 3.11 rejects. Keep their declared dependency versions and patch only

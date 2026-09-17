@@ -7,15 +7,15 @@ ARG PYPI_INDEX_URL=https://pypi.org/simple
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music UVR5 API"
-LABEL org.opencontainers.image.version="0.1.4"
+LABEL org.opencontainers.image.version="0.1.8"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg gcc libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" -r requirements.txt \
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && pip check
 COPY NOTICE.upstream.md /usr/share/licenses/music-uvr5-api/NOTICE.upstream.md
 COPY model-catalog.json /usr/local/share/music-uvr5-api/model-catalog.json

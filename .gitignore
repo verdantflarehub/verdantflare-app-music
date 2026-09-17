@@ -1,2 +1,7 @@
 __pycache__/
 *.py[cod]
+
+# Python packaging outputs
+*.egg-info/
+build/
+dist/

@@ -87,7 +87,7 @@ mix.master
 ```text
 services/<service>/
 ├── Dockerfile
-├── requirements.txt
+├── pyproject.toml
 ├── <python_package>/
 └── tests/
 ```
@@ -268,3 +268,17 @@ git checkout dev
 - [私有化部署与 MCP 技术方案](https://github.com/verdantflarehub/verdantflare-design/blob/dev/docs/design/workflow/verdantflare_music/AI%E9%9F%B3%E4%B9%90%E5%88%B6%E4%BD%9C%E4%BA%BA_0.%E6%8A%80%E6%9C%AF%E6%96%B9%E6%A1%88.md)
 
 设计文档描述目标产品。模型可用性、本地推理支持、GPU 占用、处理延迟和输出质量等内容，必须先在本仓库中完成验证，才能作为实现事实。
+
+## Python 依赖管理
+
+每个 `services/<service>/pyproject.toml` 独立声明项目元数据和依赖；仓库根不合并不同服务的 CUDA / PyTorch 环境。常规安装使用 `python -m pip install ./services/<service>`，容器仍按 Dockerfile 复制并运行源码，项目 wheel 仅承载依赖元数据。
+
+轻量 CPU 测试依赖放在 `[dependency-groups].test`，使用 pip 25.3：
+
+```bash
+python -m pip install --upgrade pip==25.3
+# 仅适用于声明了 test 组的服务；不安装 GPU 运行时。
+python -m pip install --group services/<service>/pyproject.toml:test
+```
+
+GPU 索引、预装运行时与需要关闭构建隔离的编译步骤仍由 Dockerfile 控制，普通本地安装不能替代 GPU 镜像验证。

@@ -4,14 +4,14 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music Audio Mixer API"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.1.1"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" -r requirements.txt \
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && pip check
 COPY NOTICE.upstream.md /usr/share/licenses/music-audio-mixer-api/NOTICE.upstream.md
 COPY verdantflare_mixer ./verdantflare_mixer

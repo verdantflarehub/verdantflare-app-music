@@ -1,0 +1,20 @@
+[project]
+name = "verdantflare-music-uvr5-api"
+version = "0.1.8"
+description = "VerdantFlare music-uvr5-api service"
+requires-python = ">=3.11"
+dependencies = [
+  "audio-separator==0.46.0",
+  "onnxruntime==1.29.0",
+  "fastapi==0.116.1",
+  "python-multipart==0.0.20",
+  "uvicorn==0.35.0",
+]
+
+[build-system]
+requires = ["setuptools==78.1.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Docker and tests run the explicitly copied source via PYTHONPATH.
+py-modules = []

@@ -7,15 +7,15 @@ ARG PYPI_INDEX_URL=https://pypi.org/simple
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music Lyrics Aligner API"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.1.1"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" -r requirements.txt \
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && pip check
 COPY NOTICE.upstream.md /usr/share/licenses/music-lyrics-aligner-api/NOTICE.upstream.md
 COPY verdantflare_lyrics_aligner ./verdantflare_lyrics_aligner

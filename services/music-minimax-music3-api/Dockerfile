@@ -5,11 +5,10 @@ FROM lmsysorg/sglang:v0.5.16-cu130
 USER root
 
 ARG UCX_COMMIT=d8e50df6651b9ea5b76f23aee0aefbf053a4137a
-ARG SGLANG_OMNI_VERSION=0.1.3
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax Music 3 API"
-LABEL org.opencontainers.image.version="0.1.1"
+LABEL org.opencontainers.image.version="0.1.2"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-Music3-Community"
 
 # SGLang-Omni uses UCX for CUDA-aware tensor transport between pipeline stages.
@@ -34,10 +33,11 @@ RUN set -eux; \
     ldconfig; \
     rm -rf /tmp/ucx
 
+COPY pyproject.toml /opt/music3-service/pyproject.toml
 RUN uv pip uninstall --system --break-system-packages flashinfer-cubin; \
     uv pip install --system --break-system-packages --prerelease=allow \
-        "sglang-omni==${SGLANG_OMNI_VERSION}"; \
-    python3 -c "import sglang_omni; assert sglang_omni.__version__ == '${SGLANG_OMNI_VERSION}'"
+        /opt/music3-service; \
+    python3 -c "import sglang_omni; import importlib.metadata; assert sglang_omni.__version__ == importlib.metadata.requires('verdantflare-music-minimax-music3-api')[0].split('==')[1]"
 
 # SGLang-Omni 0.1.3 can split the first Music3 CFG pair when its combined
 # prompt exceeds the default prefill budget.

@@ -1,0 +1,21 @@
+[project]
+name = "verdantflare-music-audio-mixer-api"
+version = "0.1.1"
+description = "VerdantFlare music-audio-mixer-api service"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.116.1",
+  "numpy==2.2.6",
+  "pedalboard==0.9.17",
+  "python-multipart==0.0.20",
+  "soundfile==0.13.1",
+  "uvicorn==0.35.0",
+]
+
+[build-system]
+requires = ["setuptools==78.1.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Docker and tests run the explicitly copied source via PYTHONPATH.
+py-modules = []
