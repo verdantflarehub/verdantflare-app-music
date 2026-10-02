@@ -76,6 +76,10 @@ class ServerTest(unittest.TestCase):
                 "workflow.preflight",
                 "asset.import",
                 "music.generate",
+                "duet.plan",
+                "duet.instrumental",
+                "duet.vocal",
+                "duet.preview",
                 "music.redraw",
                 "stems.separate",
                 "voice.prepare",
@@ -103,6 +107,15 @@ class ServerTest(unittest.TestCase):
                     "candidate_number",
                     "seed",
                     "max_duration_seconds",
+                },
+                "duet.plan": {"project_id", "lines", "bpm", "style", "candidate_number"},
+                "duet.instrumental": {"project_id", "plan_asset_id", "seed", "resume_task_asset_id"},
+                "duet.vocal": {
+                    "project_id", "plan_asset_id", "instrumental_asset_id", "voice", "seed", "resume_task_asset_id"
+                },
+                "duet.preview": {
+                    "project_id", "plan_asset_id", "instrumental_asset_id",
+                    "female_asset_id", "male_asset_id",
                 },
                 "music.redraw": {
                     "project_id",

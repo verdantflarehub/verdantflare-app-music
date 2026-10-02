@@ -14,6 +14,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 
 from .artifacts import ArtifactError, ArtifactNotFound, ArtifactStore
+from .duet import DuetLine
 from .executor import MusicExecutor, ServiceURLs
 from .results import artifact_result, structured_result
 
@@ -96,6 +97,78 @@ def music_generate(
         max_duration_seconds=max_duration_seconds,
     )
     return artifact_result(store, project_id, "music.generate", records)
+
+
+@mcp.tool(name="duet.plan")
+def duet_plan(
+    project_id: str,
+    lines: list[DuetLine],
+    bpm: float,
+    style: str,
+    candidate_number: int,
+) -> types.CallToolResult:
+    """Save an immutable lyric-by-lyric female, male, and shared vocal timeline."""
+    records = executor.duet_plan(
+        project_id=project_id,
+        lines=lines,
+        bpm=bpm,
+        style=style,
+        candidate_number=candidate_number,
+    )
+    return artifact_result(store, project_id, "duet.plan", records)
+
+
+@mcp.tool(name="duet.instrumental")
+def duet_instrumental(
+    project_id: str, plan_asset_id: str, seed: int = 7,
+    resume_task_asset_id: str | None = None,
+) -> types.CallToolResult:
+    """Generate an instrumental on the approved duet timeline with ACE-Step base."""
+    records = executor.duet_instrumental(
+        project_id=project_id, plan_asset_id=plan_asset_id, seed=seed,
+        resume_task_asset_id=resume_task_asset_id,
+    )
+    return artifact_result(store, project_id, "duet.instrumental", records)
+
+
+@mcp.tool(name="duet.vocal")
+def duet_vocal(
+    project_id: str,
+    plan_asset_id: str,
+    instrumental_asset_id: str,
+    voice: str,
+    seed: int = 7,
+    resume_task_asset_id: str | None = None,
+) -> types.CallToolResult:
+    """Generate one independent female or male vocal layer over the duet instrumental."""
+    records = executor.duet_vocal(
+        project_id=project_id,
+        plan_asset_id=plan_asset_id,
+        instrumental_asset_id=instrumental_asset_id,
+        voice=voice,
+        seed=seed,
+        resume_task_asset_id=resume_task_asset_id,
+    )
+    return artifact_result(store, project_id, "duet.vocal", records)
+
+
+@mcp.tool(name="duet.preview")
+def duet_preview(
+    project_id: str,
+    plan_asset_id: str,
+    instrumental_asset_id: str,
+    female_asset_id: str,
+    male_asset_id: str,
+) -> types.CallToolResult:
+    """Create a listening preview from the two distinct vocal tracks and instrumental."""
+    records = executor.duet_preview(
+        project_id=project_id,
+        plan_asset_id=plan_asset_id,
+        instrumental_asset_id=instrumental_asset_id,
+        female_asset_id=female_asset_id,
+        male_asset_id=male_asset_id,
+    )
+    return artifact_result(store, project_id, "duet.preview", records)
 
 
 @mcp.tool(name="music.redraw")

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import audioop
+import hashlib
 import io
 import json
-import math
 import math
 import os
 import re
@@ -24,6 +24,7 @@ from .artifacts import (
     require_filename,
     require_project_id,
 )
+from .duet import DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice, pcm16_wav, preview_duet, read_duet_plan
 
 
 class ExecutionError(RuntimeError):
@@ -128,6 +129,7 @@ class ServiceURLs:
     music_editor: str | None = None
     music_editor_backend: str = "ace_step_v1_5"
     music_editor_bearer_token: str | None = None
+    duet_model: str = "acestep-v15-base"
 
     @classmethod
     def from_environment(cls) -> "ServiceURLs":
@@ -145,6 +147,7 @@ class ServiceURLs:
                 "MUSIC_EDITOR_BACKEND", "ace_step_v1_5"
             ).strip(),
             music_editor_bearer_token=os.environ.get("MUSIC_EDITOR_BEARER_TOKEN") or None,
+            duet_model=os.environ.get("MUSIC_DUET_MODEL", "acestep-v15-base").strip(),
         )
 
 
@@ -432,9 +435,10 @@ class MusicExecutor:
             "cover": ("uvr5", "rvc", "lyrics_aligner", "mixer"),
             "voice_training": ("rvc",),
             "redraw": ("music_editor",),
+            "duet_generate": ("music_editor",),
         }
         if workflow not in base_requirements:
-            raise ValueError("workflow must be generate, full_song, cover, voice_training, or redraw")
+            raise ValueError("workflow must be generate, full_song, cover, voice_training, redraw, or duet_generate")
 
         voice_sources = {"generated_voice", "approved_model", "authorized_recordings"}
         if voice_source is not None and voice_source not in voice_sources:
@@ -449,8 +453,8 @@ class MusicExecutor:
             raise ValueError("cover preflight cannot use generated_voice")
         if workflow == "voice_training" and voice_source != "authorized_recordings":
             raise ValueError("voice_training preflight requires authorized_recordings")
-        if workflow == "redraw" and voice_source is not None:
-            raise ValueError("redraw preflight does not accept voice_source")
+        if workflow in {"redraw", "duet_generate"} and voice_source is not None:
+            raise ValueError(f"{workflow} preflight does not accept voice_source")
 
         model_id = require_model_id(voice_model_id) if voice_model_id else None
         if voice_source == "approved_model" and model_id is None:
@@ -523,6 +527,29 @@ class MusicExecutor:
         redraw_ready = any(
             check["service"] == "music_editor" and check["ready"] is True for check in checks
         )
+        duet_model_ready = False
+        if workflow == "duet_generate":
+            if self.service_urls.music_editor_backend != "ace_step_v1_5":
+                blocking_conditions.append("duet generation requires the ACE-Step 1.5 backend")
+            if self.service_urls.duet_model not in {"acestep-v15-base", "acestep-v15-xl-base"}:
+                blocking_conditions.append("duet generation requires an ACE-Step 1.5 base model")
+            if redraw_ready and not blocking_conditions:
+                try:
+                    catalog = self._get_json(
+                        "ACE-Step model catalog",
+                        f"{self.service_urls.music_editor}/v1/models",
+                        headers=self._music_editor_headers(),
+                    )
+                    data = self._ace_data(catalog, "model catalog")
+                    models = data.get("models") if isinstance(data, dict) else None
+                    duet_model_ready = isinstance(models, list) and any(
+                        isinstance(item, dict) and item.get("name") == self.service_urls.duet_model
+                        for item in models
+                    )
+                except ExecutionError:
+                    pass
+                if not duet_model_ready:
+                    blocking_conditions.append("ACE-Step duet base model is not loaded")
         return {
             "status": "ready" if not blocking_conditions else "blocked",
             "workflow": workflow,
@@ -534,6 +561,11 @@ class MusicExecutor:
                 "ready": redraw_ready,
                 "backend": self.service_urls.music_editor_backend,
                 "contract": "ace_step_v1_5_repaint",
+            },
+            "duet_generation": {
+                "model": self.service_urls.duet_model,
+                "ready": duet_model_ready,
+                "contract": "ace_step_v1_5_text2music_lego",
             },
             "blocking_conditions": blocking_conditions,
             "guidance": (
@@ -547,6 +579,241 @@ class MusicExecutor:
                 else "Resolve the listed conditions before starting dependent paid or irreversible stages."
             ),
         }
+
+    def duet_plan(
+        self, *, project_id: str, lines: list[DuetLine], bpm: float, style: str,
+        candidate_number: int,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        plan = build_duet_plan(lines, bpm=bpm, style=style, candidate_number=candidate_number)
+        return [self.store.create(
+            project_id=project, operation="duet.plan",
+            filename=f"Duet_Candidate_{candidate_number}_Plan.json",
+            media_type="application/json",
+            payload=(json.dumps(plan, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+        )]
+
+    def _read_duet_plan(self, project: str, plan_asset_id: str) -> dict[str, object]:
+        record, payload = self.store.read(plan_asset_id, project)
+        if record.operation != "duet.plan":
+            raise ValueError("plan_asset_id must refer to a duet plan")
+        return read_duet_plan(payload)
+
+    def _duet_backend_ready(self) -> None:
+        if self.service_urls.music_editor is None:
+            raise ExecutionError("ACE-Step duet backend is not configured")
+        if self.service_urls.music_editor_backend != "ace_step_v1_5":
+            raise ExecutionError("duet generation requires the ACE-Step 1.5 backend")
+        if self.service_urls.duet_model not in {"acestep-v15-base", "acestep-v15-xl-base"}:
+            raise ExecutionError("duet generation requires an ACE-Step 1.5 base model")
+
+    def _ace_duet_audio(
+        self, *, project: str, plan_asset_id: str, data: dict[str, str],
+        source: tuple[str, bytes] | None = None, resume_task_asset_id: str | None = None,
+    ) -> tuple[bytes, ArtifactRecord]:
+        self._duet_backend_ready()
+        request_hash = hashlib.sha256(json.dumps({
+            "plan_asset_id": plan_asset_id, "data": data,
+            "source_sha256": hashlib.sha256(source[1]).hexdigest() if source else None,
+        }, sort_keys=True).encode()).hexdigest()
+        if resume_task_asset_id is not None:
+            receipt_record, receipt_payload = self.store.read(resume_task_asset_id, project)
+            if receipt_record.operation != "duet.task":
+                raise ValueError("resume_task_asset_id must refer to a duet task")
+            try:
+                receipt = json.loads(receipt_payload)
+            except (ValueError, TypeError) as error:
+                raise ValueError("duet task receipt is invalid") from error
+            if receipt.get("request_sha256") != request_hash or not isinstance(receipt.get("task_id"), str):
+                raise ValueError("duet task receipt does not match this request")
+            task_id = receipt["task_id"]
+        else:
+            kwargs: dict[str, object] = {"headers": self._music_editor_headers(), "data": data}
+            if source is not None:
+                kwargs["files"] = {"src_audio": (source[0], source[1], "audio/wav")}
+            submitted = self._post_json(
+                "ACE-Step duet task submission",
+                f"{self.service_urls.music_editor}/release_task",
+                **kwargs,
+            )
+            submission_data = self._ace_data(submitted, "duet task submission")
+            if not isinstance(submission_data, dict) or not isinstance(submission_data.get("task_id"), str):
+                raise ExecutionError("ACE-Step duet task submission returned no task ID")
+            task_id = submission_data["task_id"]
+            try:
+                receipt_record = self.store.create(
+                    project_id=project, operation="duet.task",
+                    filename="Duet_Task.json",
+                    media_type="application/json",
+                    payload=json.dumps({"task_id": task_id, "request_sha256": request_hash}).encode(),
+                )
+            except Exception as error:
+                raise ExecutionError(f"ACE-Step duet task {task_id} submitted but receipt could not be saved") from error
+        recovery = f"; resume with Artifact {receipt_record.artifact_id}"
+        deadline = time.monotonic() + 900.0
+        while time.monotonic() < deadline:
+            try:
+                queried = self._post_json(
+                    "ACE-Step duet task query",
+                    f"{self.service_urls.music_editor}/query_result",
+                    headers=self._music_editor_headers(),
+                    json={"task_id_list": [task_id]},
+                )
+            except ExecutionError as error:
+                raise ExecutionError(f"ACE-Step duet task {task_id} query failed{recovery}") from error
+            try:
+                query_data = self._ace_data(queried, "duet task query")
+            except ExecutionError as error:
+                raise ExecutionError(f"ACE-Step duet task {task_id} query returned an error{recovery}") from error
+            if not isinstance(query_data, list) or len(query_data) != 1:
+                raise ExecutionError(f"ACE-Step duet task {task_id} returned invalid status{recovery}")
+            task = query_data[0]
+            if not isinstance(task, dict) or task.get("task_id") != task_id:
+                raise ExecutionError(f"ACE-Step duet task {task_id} returned the wrong task{recovery}")
+            if task.get("status") == 2:
+                raise ExecutionError(f"ACE-Step duet task {task_id} failed{recovery}")
+            if task.get("status") == 1:
+                try:
+                    items = json.loads(task["result"]) if isinstance(task.get("result"), str) else task["result"]
+                except (KeyError, json.JSONDecodeError) as error:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} returned invalid output{recovery}") from error
+                break
+            time.sleep(2.0)
+        else:
+            raise ExecutionError(f"ACE-Step duet task {task_id} timed out{recovery}")
+        if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+            raise ExecutionError(f"ACE-Step duet task {task_id} returned no audio{recovery}")
+        file_value = items[0].get("file")
+        if not isinstance(file_value, str) or not file_value:
+            raise ExecutionError(f"ACE-Step duet task {task_id} returned no audio URL{recovery}")
+        result_url = urljoin(f"{self.service_urls.music_editor}/", file_value)
+        origin = urlsplit(self.service_urls.music_editor)
+        result_origin = urlsplit(result_url)
+        if (origin.scheme, origin.netloc) != (result_origin.scheme, result_origin.netloc):
+            raise ExecutionError(f"ACE-Step duet task {task_id} returned an untrusted origin{recovery}")
+        try:
+            response = self.client.get(result_url, headers=self._music_editor_headers())
+        except httpx.HTTPError as error:
+            raise ExecutionError(f"ACE-Step duet task {task_id} audio download failed{recovery}") from error
+        if response.status_code < 200 or response.status_code >= 300:
+            raise ExecutionError(f"ACE-Step duet task {task_id} audio download returned HTTP {response.status_code}{recovery}")
+        if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
+            raise ExecutionError(f"ACE-Step duet task {task_id} audio download has invalid size{recovery}")
+        try:
+            pcm16_wav(response.content)
+        except ValueError as error:
+            raise ExecutionError(f"ACE-Step duet task {task_id} did not return 16-bit PCM WAV{recovery}") from error
+        return response.content, receipt_record
+
+    def duet_instrumental(
+        self, *, project_id: str, plan_asset_id: str, seed: int = 7,
+        resume_task_asset_id: str | None = None,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        plan = self._read_duet_plan(project, plan_asset_id)
+        if not 0 <= seed <= 2_147_483_647:
+            raise ValueError("seed must be between 0 and 2147483647")
+        self._duet_backend_ready()
+        data = {
+            "task_type": "text2music", "model": self.service_urls.duet_model,
+            "prompt": f"Instrumental only, no vocals or spoken voice. {plan['style']}",
+            "lyrics": "[Instrumental]", "duration": str(plan["duration_seconds"]),
+            "bpm": str(plan["bpm"]), "seed": str(seed),
+            "use_random_seed": "false", "audio_format": "wav",
+            "inference_steps": "50", "batch_size": "1", "thinking": "false",
+        }
+        audio, receipt = self._ace_duet_audio(
+            project=project, plan_asset_id=plan_asset_id, data=data,
+            resume_task_asset_id=resume_task_asset_id,
+        )
+        params, _ = pcm16_wav(audio)
+        if abs(params.nframes / params.framerate - plan["duration_seconds"]) > max(2, plan["duration_seconds"] * 0.03):
+            rejected = self.store.create(
+                project_id=project, operation="duet.instrumental.rejected",
+                filename=f"Duet_Candidate_{plan['candidate_number']}_Instrumental_Rejected.wav",
+                media_type="audio/wav", payload=audio,
+            )
+            raise ExecutionError(f"ACE-Step duet instrumental duration differs from the approved plan; diagnostic Artifact {rejected.artifact_id}")
+        record = self.store.create(
+            project_id=project, operation="duet.instrumental",
+            filename=f"Duet_Candidate_{plan['candidate_number']}_Instrumental.wav",
+            media_type="audio/wav", payload=audio,
+        )
+        return [receipt, record]
+
+    def duet_vocal(
+        self, *, project_id: str, plan_asset_id: str, instrumental_asset_id: str,
+        voice: str, seed: int = 7, resume_task_asset_id: str | None = None,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        plan = self._read_duet_plan(project, plan_asset_id)
+        if voice not in {"female", "male"}:
+            raise ValueError("voice must be female or male")
+        if not 0 <= seed <= 2_147_483_647:
+            raise ValueError("seed must be between 0 and 2147483647")
+        backing_record, backing = self.store.read(instrumental_asset_id, project)
+        if backing_record.operation != "duet.instrumental" or backing_record.filename != f"Duet_Candidate_{plan['candidate_number']}_Instrumental.wav":
+            raise ValueError("instrumental_asset_id does not match the duet plan")
+        self._duet_backend_ready()
+        description = "bright natural female lead" if voice == "female" else "clear lower male lead"
+        data = {
+            "task_type": "lego", "model": self.service_urls.duet_model,
+            "instruction": "Generate only the isolated vocals track based on the audio context:",
+            "prompt": f"{description} singing in Mandarin. No instruments. {plan['style']}",
+            "lyrics": lyrics_for_voice(plan, voice),
+            "vocal_language": "zh", "duration": str(plan["duration_seconds"]),
+            "bpm": str(plan["bpm"]), "seed": str(seed),
+            "use_random_seed": "false", "audio_format": "wav",
+            "inference_steps": "50", "batch_size": "1", "thinking": "false",
+            "track_name": "Vocals",
+            "repainting_start": "0", "repainting_end": "-1",
+        }
+        raw, receipt = self._ace_duet_audio(
+            project=project, plan_asset_id=plan_asset_id, data=data,
+            source=(backing_record.filename, backing),
+            resume_task_asset_id=resume_task_asset_id,
+        )
+        raw_record = self.store.create(
+            project_id=project, operation="duet.vocal.raw",
+            filename=f"Duet_Candidate_{plan['candidate_number']}_{voice.title()}_Raw.wav",
+            media_type="audio/wav", payload=raw,
+        )
+        try:
+            masked = fit_vocal_to_backing(backing, raw, plan, voice)
+        except ValueError as error:
+            raise ExecutionError(f"duet vocal validation failed; raw Artifact {raw_record.artifact_id}: {error}") from error
+        record = self.store.create(
+            project_id=project, operation="duet.vocal",
+            filename=f"Duet_Candidate_{plan['candidate_number']}_{voice.title()}.wav",
+            media_type="audio/wav", payload=masked,
+        )
+        return [receipt, raw_record, record]
+
+    def duet_preview(
+        self, *, project_id: str, plan_asset_id: str, instrumental_asset_id: str,
+        female_asset_id: str, male_asset_id: str,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        plan = self._read_duet_plan(project, plan_asset_id)
+        prefix = f"Duet_Candidate_{plan['candidate_number']}"
+        inputs = [
+            (instrumental_asset_id, "duet.instrumental", f"{prefix}_Instrumental.wav"),
+            (female_asset_id, "duet.vocal", f"{prefix}_Female.wav"),
+            (male_asset_id, "duet.vocal", f"{prefix}_Male.wav"),
+        ]
+        if len({item[0] for item in inputs}) != 3:
+            raise ValueError("duet preview requires three distinct artifacts")
+        audio_parts = []
+        for artifact_id, operation, filename in inputs:
+            record, payload = self.store.read(artifact_id, project)
+            if record.operation != operation or record.filename != filename:
+                raise ValueError("duet preview input does not match the plan or vocal role")
+            audio_parts.append(payload)
+        preview = preview_duet(*audio_parts)
+        return [self.store.create(
+            project_id=project, operation="duet.preview",
+            filename=f"{prefix}.wav", media_type="audio/wav", payload=preview,
+        )]
 
     def import_asset(
         self,
