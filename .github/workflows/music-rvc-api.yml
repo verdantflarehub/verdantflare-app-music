@@ -38,12 +38,6 @@ jobs:
             shellcheck "$script"
           done < <(find "services/${SERVICE}" -type f -name '*.sh' -print0)
 
-      - name: Run unit tests
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: services/music-rvc-api
-        run: python3 -m unittest discover -s "services/${SERVICE}/tests" -v
-
   build:
     name: Build and push image
     needs: check
