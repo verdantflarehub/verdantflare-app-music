@@ -48,8 +48,10 @@ Skill 负责制定计划和审核门禁，MCP Server 负责执行单步工具及
 MCP 能力与服务边界一一对应：
 
 ```text
+workflow.preflight
 asset.import
 music.generate
+music.redraw
 stems.separate
 voice.prepare
 voice.train
@@ -58,7 +60,7 @@ lyrics.align
 mix.master
 ```
 
-这些工具采用可执行 v1 契约。MCP Server 只向客户端返回项目范围的 Artifact ID、文件元数据和下载位置，不暴露内部服务 URL 或宿主机路径。
+这些工具采用可执行 v1 契约。`workflow.preflight` 在长任务前检查服务、精确人声模型 ID 与局部重绘能力；`music.redraw` 适配 ACE-Step 1.5 `repaint`，并用源帧重新装配目标区间之外的音频，不回退到不支持参考音频的 Music3。MCP Server 只向客户端返回项目范围的 Artifact ID、文件元数据和下载位置，不暴露内部服务 URL 或宿主机路径。
 
 ## 仓库结构
 
@@ -129,11 +131,11 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 `music-rvc-api` 提供确定性训练材料准备、同步训练验收、模型发现和音色转换；材料准备不做 AI 修音或生成式增强，模型 ID 不可覆盖，训练返回模型、索引和真实转换得到的 15 秒验证音频。它不包含 WebUI、UVR5 或任务数据库。详见 [`services/music-rvc-api/README.md`](services/music-rvc-api/README.md)。
 
-`music-uvr5-api` 使用锁定的 `audio-separator`、MelBand RoFormer 和独立去混响模型，返回 24-bit/48 kHz 的 `instrumental.wav` 与 `vocal_dry_original.wav`。`music-audio-mixer-api` 使用 Pedalboard 和 FFmpeg 生成母带 WAV、320 kbps MP3，并验证、原样打包调用方提供的 LRC。
+`music-uvr5-api` 使用锁定的 `audio-separator`、MelBand Roformer 和独立去混响模型，返回 24-bit/48 kHz 的 `instrumental.wav` 与 `vocal_dry_original.wav`；本地新版另保存湿人声和混响残留供诊断，它们不是独立和声。`music-audio-mixer-api` 使用 Pedalboard 和 FFmpeg 生成母带 WAV、320 kbps MP3，并验证、原样打包调用方提供的 LRC；成都 v0.1.2 可混合经审核的独立和声及多位歌手的人声轨。
 
 `music-lyrics-aligner-api` v0.1.0 锁定 Stable Whisper 2.19.1、OpenAI Whisper 20250625 和多语言 `small` 模型，把已批准中文歌词直接强制对齐到实际干声。对齐失败时不回退到原曲时间轴或线性缩放。设计见 [`docs/lyrics-alignment-design.md`](docs/lyrics-alignment-design.md)。
 
-`music-mcp-server` v0.6.0 暴露八个可执行 v1 工具，`voice.prepare` 将 1–20 个项目录音 Artifact 送入 RVC 的确定性材料准备并持久化逐来源 WAV、训练 WAV、分段和报告；`lyrics.align` 对返回 LRC 执行逐行文字与严格时间戳校验，`voice.convert` 暴露 RVC 的检索率、F0、滤波、响度包络和清辅音保护参数用于可审计的质量返工。它可从配置白名单中的外部 S3/CDN HTTPS origin 流式导入客户音频，并将结果登记到项目范围的持久化 Artifact 存储。`music.generate` 将时长参数解释为生成上限，保存模型自然结束的单个候选 WAV，不裁切或补静音。服务不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。公网部署通过显式 Host 与 Origin allowlist 保留 MCP DNS rebinding 防护。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
+`music-mcp-server` 成都 v0.8.0 暴露十个可执行 v1 工具。`workflow.preflight` 在执行前检查下游服务、精确人声模型 ID 和 ACE-Step 1.5 重绘服务；`music.redraw` 仅在实际配置编辑后端时可用，提交 repaint、轮询结果、安全下载，并以源帧保证区间外内容不变。`voice.prepare` 将 1–20 个项目录音 Artifact 送入 RVC 的确定性材料准备并持久化逐来源 WAV、训练 WAV、分段和报告；`lyrics.align` 对返回 LRC 执行逐行文字与严格时间戳校验，`voice.convert` 暴露 RVC 的检索率、F0、滤波、响度包络和清辅音保护参数用于可审计的质量返工。它可从配置白名单中的外部 S3/CDN HTTPS origin 流式导入客户音频，并将结果登记到项目范围的持久化 Artifact 存储。`music.generate` 将时长参数解释为生成上限，保存模型自然结束的单个候选 WAV，不裁切或补静音。服务不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。公网部署通过显式 Host 与 Origin allowlist 保留 MCP DNS rebinding 防护。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，发布步骤见设计仓库的 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/README.md`，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
 
 当前静态、单元和契约测试不等于音频质量验收。只有在目标 GPU 跑完真实端到端脚本并完成人工审核后，才能确认模型效果、显存需求、处理时间和最终母带参数。
 
@@ -157,7 +159,7 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 部署前必须同时满足：
 
-1. 六个版本镜像均由对应 `release` workflow 成功发布。新版本 `music-mcp-server-v0.6.0`、`music-rvc-api-v0.2.1` 和 `music-lyrics-aligner-api-v0.1.0` 必须先完成流水线。
+1. 六个版本镜像均由对应 `release` workflow 成功发布。新版本 `music-mcp-server-v0.8.0`、`music-rvc-api-v0.2.1` 和 `music-lyrics-aligner-api-v0.1.0` 必须先完成流水线。
 2. Aliyun `wod/verdantflare-app` 中的六个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
 3. `hostpath` StorageClass 可用，`10.241.109.7:/data` 至少有 270 GiB 可用容量。
 4. `10.241.109.7` 为 Ready，且至少五张完整 RTX 4090 可用于同时运行 Music3、UVR5、RVC 和歌词对齐。
