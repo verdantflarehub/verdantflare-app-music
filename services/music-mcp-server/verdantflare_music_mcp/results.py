@@ -7,6 +7,13 @@ from mcp import types
 from .artifacts import ArtifactRecord, ArtifactStore
 
 
+def structured_result(payload: dict[str, object]) -> types.CallToolResult:
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))],
+        structuredContent=payload,
+    )
+
+
 def artifact_result(
     store: ArtifactStore,
     project_id: str,

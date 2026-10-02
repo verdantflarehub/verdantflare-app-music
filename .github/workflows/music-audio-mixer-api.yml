@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 env:
   SERVICE: music-audio-mixer-api
-  VERSION: 0.1.1
+  VERSION: 0.1.2
 
 jobs:
   check:
@@ -27,6 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           shellcheck services/${SERVICE}/*.sh
+          python3 -m pip install ./services/${SERVICE}
           python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
     needs: check

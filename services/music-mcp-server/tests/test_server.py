@@ -73,8 +73,10 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(
             {tool.name for tool in tools},
             {
+                "workflow.preflight",
                 "asset.import",
                 "music.generate",
+                "music.redraw",
                 "stems.separate",
                 "voice.prepare",
                 "voice.train",
@@ -87,6 +89,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(
             properties,
             {
+                "workflow.preflight": {
+                    "workflow",
+                    "voice_source",
+                    "voice_model_id",
+                    "require_local_redraw",
+                },
                 "asset.import": {"project_id", "source_url", "filename", "expected_sha256"},
                 "music.generate": {
                     "project_id",
@@ -95,6 +103,19 @@ class ServerTest(unittest.TestCase):
                     "candidate_number",
                     "seed",
                     "max_duration_seconds",
+                },
+                "music.redraw": {
+                    "project_id",
+                    "audio_asset_id",
+                    "start_seconds",
+                    "end_seconds",
+                    "instructions",
+                    "revision_number",
+                    "lyrics",
+                    "seed",
+                    "crossfade_seconds",
+                    "preservation_mode",
+                    "edit_strength",
                 },
                 "stems.separate": {"project_id", "audio_asset_id"},
                 "voice.prepare": {"project_id", "audio_asset_ids"},
@@ -117,6 +138,11 @@ class ServerTest(unittest.TestCase):
                     "vocal_asset_id",
                     "lyrics_lrc",
                     "bpm",
+                    "backing_vocal_asset_id",
+                    "backing_gain_db",
+                    "additional_vocal_asset_ids",
+                    "additional_vocal_gains_db",
+                    "vocal_mode",
                 },
             },
         )

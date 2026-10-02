@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import audioop
 import io
 import json
 import math
+import math
 import os
 import re
+import time
 import wave
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -122,9 +125,13 @@ class ServiceURLs:
     rvc: str
     lyrics_aligner: str
     mixer: str
+    music_editor: str | None = None
+    music_editor_backend: str = "ace_step_v1_5"
+    music_editor_bearer_token: str | None = None
 
     @classmethod
     def from_environment(cls) -> "ServiceURLs":
+        editor = os.environ.get("MUSIC_EDITOR_URL", "").strip().rstrip("/")
         return cls(
             music3=os.environ.get("MUSIC3_URL", "http://music-minimax-music3-api:8000").rstrip("/"),
             uvr5=os.environ.get("UVR5_URL", "http://music-uvr5-api:8000").rstrip("/"),
@@ -133,6 +140,11 @@ class ServiceURLs:
                 "LYRICS_ALIGNER_URL", "http://music-lyrics-aligner-api:8000"
             ).rstrip("/"),
             mixer=os.environ.get("MIXER_URL", "http://music-audio-mixer-api:8000").rstrip("/"),
+            music_editor=editor or None,
+            music_editor_backend=os.environ.get(
+                "MUSIC_EDITOR_BACKEND", "ace_step_v1_5"
+            ).strip(),
+            music_editor_bearer_token=os.environ.get("MUSIC_EDITOR_BEARER_TOKEN") or None,
         )
 
 
@@ -145,6 +157,90 @@ def validate_pcm_wav(payload: bytes) -> None:
                 raise ExecutionError("Music3 returned an empty WAV")
     except (EOFError, wave.Error) as error:
         raise ExecutionError("Music3 returned an invalid WAV") from error
+
+
+def preserve_pcm_outside_region(
+    source_payload: bytes,
+    edited_payload: bytes,
+    start_seconds: float,
+    end_seconds: float,
+    crossfade_seconds: float,
+) -> bytes:
+    """Insert a conditioned repaint while keeping every source frame outside the mask unchanged."""
+    try:
+        with wave.open(io.BytesIO(source_payload), "rb") as source:
+            source_params = source.getparams()
+            source_frames = source.readframes(source.getnframes())
+        with wave.open(io.BytesIO(edited_payload), "rb") as edited:
+            edited_params = edited.getparams()
+            edited_frames = edited.readframes(edited.getnframes())
+    except (EOFError, wave.Error) as error:
+        raise ExecutionError("music redraw requires valid PCM WAV audio") from error
+    if source_params.comptype != "NONE" or edited_params.comptype != "NONE":
+        raise ExecutionError("music redraw requires uncompressed PCM WAV audio")
+    if source_params.sampwidth != 2:
+        raise ExecutionError("music redraw source must be 16-bit PCM WAV")
+    if source_params.nchannels not in {1, 2} or edited_params.nchannels not in {1, 2}:
+        raise ExecutionError("music redraw supports mono or stereo WAV audio")
+
+    if edited_params.sampwidth != source_params.sampwidth:
+        edited_frames = audioop.lin2lin(
+            edited_frames, edited_params.sampwidth, source_params.sampwidth
+        )
+    if edited_params.nchannels != source_params.nchannels:
+        if edited_params.nchannels == 1:
+            edited_frames = audioop.tostereo(edited_frames, source_params.sampwidth, 1.0, 1.0)
+        else:
+            edited_frames = audioop.tomono(edited_frames, source_params.sampwidth, 0.5, 0.5)
+    if edited_params.framerate != source_params.framerate:
+        edited_frames, _ = audioop.ratecv(
+            edited_frames,
+            source_params.sampwidth,
+            source_params.nchannels,
+            edited_params.framerate,
+            source_params.framerate,
+            None,
+        )
+
+    frame_bytes = source_params.sampwidth * source_params.nchannels
+    source_frame_count = len(source_frames) // frame_bytes
+    edited_frame_count = len(edited_frames) // frame_bytes
+    start_frame = round(start_seconds * source_params.framerate)
+    end_frame = round(end_seconds * source_params.framerate)
+    if end_frame > source_frame_count or end_frame > edited_frame_count:
+        raise ExecutionError("music redraw result is shorter than the requested region")
+
+    start_byte = start_frame * frame_bytes
+    end_byte = end_frame * frame_bytes
+    region = bytearray(edited_frames[start_byte:end_byte])
+    source_region = source_frames[start_byte:end_byte]
+    fade_frames = min(
+        round(crossfade_seconds * source_params.framerate),
+        (end_frame - start_frame) // 2,
+    )
+    for frame_index in range(fade_frames):
+        left_edit_weight = (frame_index + 1) / fade_frames
+        right_edit_weight = (fade_frames - frame_index - 1) / fade_frames
+        for channel in range(source_params.nchannels):
+            for relative_frame, edit_weight in (
+                (frame_index, left_edit_weight),
+                (end_frame - start_frame - fade_frames + frame_index, right_edit_weight),
+            ):
+                offset = relative_frame * frame_bytes + channel * 2
+                source_sample = int.from_bytes(
+                    source_region[offset : offset + 2], "little", signed=True
+                )
+                edited_sample = int.from_bytes(region[offset : offset + 2], "little", signed=True)
+                mixed = round(source_sample * (1.0 - edit_weight) + edited_sample * edit_weight)
+                region[offset : offset + 2] = max(-32768, min(32767, mixed)).to_bytes(
+                    2, "little", signed=True
+                )
+
+    output = io.BytesIO()
+    with wave.open(output, "wb") as target:
+        target.setparams(source_params)
+        target.writeframes(source_frames[:start_byte] + region + source_frames[end_byte:])
+    return output.getvalue()
 
 
 def extract_expected_zip(payload: bytes, expected: dict[str, str]) -> dict[str, bytes]:
@@ -280,6 +376,178 @@ class MusicExecutor:
             raise ExecutionError(f"{service} returned an empty response")
         return response.content
 
+    def _get_json(self, service: str, url: str, **kwargs: object) -> dict[str, object]:
+        try:
+            response = self.client.get(url, **kwargs)
+        except httpx.HTTPError as error:
+            raise ExecutionError(f"{service} request failed") from error
+        if response.status_code < 200 or response.status_code >= 300:
+            raise ExecutionError(f"{service} returned HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as error:
+            raise ExecutionError(f"{service} returned invalid JSON") from error
+        if not isinstance(payload, dict):
+            raise ExecutionError(f"{service} returned invalid JSON")
+        return payload
+
+    def _post_json(self, service: str, url: str, **kwargs: object) -> dict[str, object]:
+        try:
+            response = self.client.post(url, **kwargs)
+        except httpx.HTTPError as error:
+            raise ExecutionError(f"{service} request failed") from error
+        if response.status_code < 200 or response.status_code >= 300:
+            raise ExecutionError(f"{service} returned HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as error:
+            raise ExecutionError(f"{service} returned invalid JSON") from error
+        if not isinstance(payload, dict):
+            raise ExecutionError(f"{service} returned invalid JSON")
+        return payload
+
+    def _music_editor_headers(self) -> dict[str, str]:
+        token = self.service_urls.music_editor_bearer_token
+        return {"Authorization": f"Bearer {token}"} if token else {}
+
+    @staticmethod
+    def _ace_data(payload: dict[str, object], operation: str) -> object:
+        if payload.get("code") != 200 or payload.get("error") not in {None, ""}:
+            raise ExecutionError(f"ACE-Step {operation} failed")
+        if "data" not in payload:
+            raise ExecutionError(f"ACE-Step {operation} returned invalid JSON")
+        return payload["data"]
+
+    def preflight(
+        self,
+        *,
+        workflow: str,
+        voice_source: str | None = None,
+        voice_model_id: str | None = None,
+        require_local_redraw: bool = False,
+    ) -> dict[str, object]:
+        base_requirements = {
+            "generate": ("music3",),
+            "full_song": ("music3", "lyrics_aligner", "mixer"),
+            "cover": ("uvr5", "rvc", "lyrics_aligner", "mixer"),
+            "voice_training": ("rvc",),
+            "redraw": ("music_editor",),
+        }
+        if workflow not in base_requirements:
+            raise ValueError("workflow must be generate, full_song, cover, voice_training, or redraw")
+
+        voice_sources = {"generated_voice", "approved_model", "authorized_recordings"}
+        if voice_source is not None and voice_source not in voice_sources:
+            raise ValueError(
+                "voice_source must be generated_voice, approved_model, or authorized_recordings"
+            )
+        if workflow in {"full_song", "cover"} and voice_source is None:
+            raise ValueError("voice_source is required for full_song and cover preflight")
+        if workflow == "generate" and voice_source not in {None, "generated_voice"}:
+            raise ValueError("generate preflight only supports generated_voice")
+        if workflow == "cover" and voice_source == "generated_voice":
+            raise ValueError("cover preflight cannot use generated_voice")
+        if workflow == "voice_training" and voice_source != "authorized_recordings":
+            raise ValueError("voice_training preflight requires authorized_recordings")
+        if workflow == "redraw" and voice_source is not None:
+            raise ValueError("redraw preflight does not accept voice_source")
+
+        model_id = require_model_id(voice_model_id) if voice_model_id else None
+        if voice_source == "approved_model" and model_id is None:
+            raise ValueError("voice_model_id is required when voice_source is approved_model")
+        if voice_source != "approved_model" and model_id is not None:
+            raise ValueError("voice_model_id is only valid when voice_source is approved_model")
+
+        service_urls = {
+            "music3": self.service_urls.music3,
+            "uvr5": self.service_urls.uvr5,
+            "rvc": self.service_urls.rvc,
+            "lyrics_aligner": self.service_urls.lyrics_aligner,
+            "mixer": self.service_urls.mixer,
+            "music_editor": self.service_urls.music_editor,
+        }
+        required_services = set(base_requirements[workflow])
+        if workflow == "full_song" and voice_source in {"approved_model", "authorized_recordings"}:
+            required_services.update({"uvr5", "rvc"})
+        if require_local_redraw:
+            required_services.add("music_editor")
+        checks: list[dict[str, object]] = []
+        blocking_conditions: list[str] = []
+
+        for service in sorted(required_services):
+            url = service_urls[service]
+            if url is None:
+                checks.append({"service": service, "ready": False, "reason": "not_configured"})
+                blocking_conditions.append(f"{service} is not configured")
+                continue
+            try:
+                kwargs = (
+                    {"headers": self._music_editor_headers()}
+                    if service == "music_editor"
+                    else {}
+                )
+                payload = self._get_json(service, f"{url}/health", **kwargs)
+                ready = payload.get("status") not in {"unavailable", "error", "failed"}
+                checks.append(
+                    {
+                        "service": service,
+                        "ready": ready,
+                        "reason": "ok" if ready else "health_not_ready",
+                    }
+                )
+                if not ready:
+                    blocking_conditions.append(f"{service} health check is not ready")
+            except ExecutionError:
+                checks.append({"service": service, "ready": False, "reason": "health_request_failed"})
+                blocking_conditions.append(f"{service} health check failed")
+
+        voice_model: dict[str, object] | None = None
+        if model_id is not None:
+            try:
+                payload = self._get_json("RVC model catalog", f"{self.service_urls.rvc}/v1/voice-models")
+                models = payload.get("models")
+                installed = {
+                    item.get("id")
+                    for item in models
+                    if isinstance(models, list) and isinstance(item, dict)
+                } if isinstance(models, list) else set()
+                found = model_id in installed
+                voice_model = {"model_id": model_id, "installed": found}
+                if not found:
+                    blocking_conditions.append(f"voice model {model_id} is not installed")
+            except ExecutionError:
+                voice_model = {"model_id": model_id, "installed": False, "reason": "catalog_request_failed"}
+                blocking_conditions.append("RVC model catalog check failed")
+
+        redraw_configured = self.service_urls.music_editor is not None
+        redraw_ready = any(
+            check["service"] == "music_editor" and check["ready"] is True for check in checks
+        )
+        return {
+            "status": "ready" if not blocking_conditions else "blocked",
+            "workflow": workflow,
+            "voice_source": voice_source,
+            "checks": checks,
+            "voice_model": voice_model,
+            "local_redraw": {
+                "configured": redraw_configured,
+                "ready": redraw_ready,
+                "backend": self.service_urls.music_editor_backend,
+                "contract": "ace_step_v1_5_repaint",
+            },
+            "blocking_conditions": blocking_conditions,
+            "guidance": (
+                (
+                    "Prepare and train the authorized recordings, then rerun preflight with "
+                    "voice_source=approved_model and the returned exact model ID before conversion."
+                    if voice_source == "authorized_recordings"
+                    else "Proceed with the selected workflow."
+                )
+                if not blocking_conditions
+                else "Resolve the listed conditions before starting dependent paid or irreversible stages."
+            ),
+        }
+
     def import_asset(
         self,
         *,
@@ -367,6 +635,159 @@ class MusicExecutor:
             )
         ]
 
+    def redraw(
+        self,
+        *,
+        project_id: str,
+        audio_asset_id: str,
+        start_seconds: float,
+        end_seconds: float,
+        instructions: str,
+        lyrics: str,
+        revision_number: int,
+        seed: int,
+        crossfade_seconds: float,
+        preservation_mode: str = "balanced",
+        edit_strength: float = 0.5,
+    ) -> list[ArtifactRecord]:
+        project = require_project_id(project_id)
+        if self.service_urls.music_editor is None:
+            raise ExecutionError("local music redraw is not configured")
+        if self.service_urls.music_editor_backend != "ace_step_v1_5":
+            raise ExecutionError("unsupported local music redraw backend")
+        if not 0.0 <= start_seconds < end_seconds:
+            raise ValueError("redraw range must satisfy 0 <= start_seconds < end_seconds")
+        if end_seconds - start_seconds > 60.0:
+            raise ValueError("redraw range must not exceed 60 seconds")
+        if not instructions.strip():
+            raise ValueError("instructions are required")
+        if not 1 <= revision_number <= 99:
+            raise ValueError("revision_number must be between 1 and 99")
+        if not 0 <= seed <= 2_147_483_647:
+            raise ValueError("seed must be between 0 and 2147483647")
+        if not 0.05 <= crossfade_seconds <= 3.0:
+            raise ValueError("crossfade_seconds must be between 0.05 and 3.0")
+        if crossfade_seconds * 2 > end_seconds - start_seconds:
+            raise ValueError("crossfade_seconds is too long for the redraw range")
+        if preservation_mode not in {"conservative", "balanced", "aggressive"}:
+            raise ValueError(
+                "preservation_mode must be conservative, balanced, or aggressive"
+            )
+        if not 0.0 <= edit_strength <= 1.0:
+            raise ValueError("edit_strength must be between 0.0 and 1.0")
+
+        source, audio = self.store.read(audio_asset_id, project)
+        try:
+            with wave.open(io.BytesIO(audio), "rb") as source_audio:
+                if (
+                    source_audio.getcomptype() != "NONE"
+                    or source_audio.getsampwidth() != 2
+                    or source_audio.getnchannels() not in {1, 2}
+                ):
+                    raise ExecutionError(
+                        "music redraw source must be mono or stereo 16-bit PCM WAV"
+                    )
+                source_duration = source_audio.getnframes() / source_audio.getframerate()
+        except (EOFError, wave.Error) as error:
+            raise ExecutionError("music redraw source must be a valid PCM WAV") from error
+        if end_seconds > source_duration:
+            raise ValueError("redraw range exceeds the source audio duration")
+        headers = self._music_editor_headers()
+        submitted = self._post_json(
+            "ACE-Step task submission",
+            f"{self.service_urls.music_editor}/release_task",
+            headers=headers,
+            files={"src_audio": (source.filename, audio, source.media_type)},
+            data={
+                "task_type": "repaint",
+                "prompt": instructions,
+                "lyrics": lyrics,
+                "repainting_start": str(start_seconds),
+                "repainting_end": str(end_seconds),
+                "chunk_mask_mode": "explicit",
+                "repaint_mode": preservation_mode,
+                "repaint_strength": str(edit_strength),
+                "repaint_latent_crossfade_frames": str(max(1, round(crossfade_seconds * 25))),
+                "repaint_wav_crossfade_sec": str(crossfade_seconds),
+                "seed": str(seed),
+                "use_random_seed": "false",
+                "audio_format": "wav",
+            },
+        )
+        submission_data = self._ace_data(submitted, "task submission")
+        if not isinstance(submission_data, dict) or not isinstance(
+            submission_data.get("task_id"), str
+        ):
+            raise ExecutionError("ACE-Step task submission returned no task ID")
+        task_id = submission_data["task_id"]
+
+        result_items: list[object] | None = None
+        deadline = time.monotonic() + 900.0
+        while time.monotonic() < deadline:
+            queried = self._post_json(
+                "ACE-Step task query",
+                f"{self.service_urls.music_editor}/query_result",
+                headers=headers,
+                json={"task_id_list": [task_id]},
+            )
+            query_data = self._ace_data(queried, "task query")
+            if not isinstance(query_data, list) or len(query_data) != 1:
+                raise ExecutionError("ACE-Step task query returned invalid data")
+            task = query_data[0]
+            if not isinstance(task, dict) or task.get("task_id") != task_id:
+                raise ExecutionError("ACE-Step task query returned the wrong task")
+            if task.get("status") == 2:
+                raise ExecutionError("ACE-Step repaint task failed")
+            if task.get("status") == 1:
+                raw_result = task.get("result")
+                try:
+                    result_items = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+                except json.JSONDecodeError as error:
+                    raise ExecutionError("ACE-Step repaint result is invalid") from error
+                break
+            time.sleep(2.0)
+        if result_items is None:
+            raise ExecutionError("ACE-Step repaint task timed out")
+        if not isinstance(result_items, list) or not result_items or not isinstance(result_items[0], dict):
+            raise ExecutionError("ACE-Step repaint result is empty")
+        file_value = result_items[0].get("file")
+        if not isinstance(file_value, str) or not file_value:
+            raise ExecutionError("ACE-Step repaint result has no audio file")
+
+        result_url = urljoin(f"{self.service_urls.music_editor}/", file_value)
+        editor_origin = urlsplit(self.service_urls.music_editor)
+        result_origin = urlsplit(result_url)
+        if (result_origin.scheme, result_origin.netloc) != (
+            editor_origin.scheme,
+            editor_origin.netloc,
+        ):
+            raise ExecutionError("ACE-Step repaint result points to an untrusted origin")
+        try:
+            response = self.client.get(result_url, headers=headers)
+        except httpx.HTTPError as error:
+            raise ExecutionError("ACE-Step audio download failed") from error
+        if response.status_code < 200 or response.status_code >= 300:
+            raise ExecutionError(f"ACE-Step audio download returned HTTP {response.status_code}")
+        if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
+            raise ExecutionError("ACE-Step audio download has an invalid size")
+        redrawn = preserve_pcm_outside_region(
+            audio,
+            response.content,
+            start_seconds,
+            end_seconds,
+            crossfade_seconds,
+        )
+        validate_pcm_wav(redrawn)
+        return [
+            self.store.create(
+                project_id=project,
+                operation="music.redraw",
+                filename=f"Demo_Redraw_{revision_number}.wav",
+                media_type="audio/wav",
+                payload=redrawn,
+            )
+        ]
+
     def separate_stems(self, *, project_id: str, audio_asset_id: str) -> list[ArtifactRecord]:
         project = require_project_id(project_id)
         source, audio = self.store.read(audio_asset_id, project)
@@ -379,6 +800,24 @@ class MusicExecutor:
             "instrumental.wav": "audio/wav",
             "vocal_dry_original.wav": "audio/wav",
         }
+        try:
+            with zipfile.ZipFile(io.BytesIO(archive)) as stem_archive:
+                names = set(stem_archive.namelist())
+        except zipfile.BadZipFile as error:
+            raise ExecutionError("downstream returned an invalid ZIP") from error
+        preserved = {
+            "vocal_wet_original.wav": "audio/wav",
+            "vocal_reverb_original.wav": "audio/wav",
+        }
+        backing = {
+            "vocal_lead_reference.wav": "audio/wav",
+            "backing_vocals_unreviewed.wav": "audio/wav",
+        }
+        if names == set(expected) | set(preserved) | set(backing) | {"manifest.json"}:
+            expected.update(preserved)
+            expected.update(backing)
+        elif names == set(expected) | set(preserved) | {"manifest.json"}:
+            expected.update(preserved)
         outputs = extract_expected_zip(archive, expected)
         return [
             self.store.create(
@@ -577,23 +1016,62 @@ class MusicExecutor:
         vocal_asset_id: str,
         lyrics_lrc: str,
         bpm: float,
+        backing_vocal_asset_id: str | None = None,
+        backing_gain_db: float = -6.0,
+        additional_vocal_asset_ids: list[str] | None = None,
+        additional_vocal_gains_db: list[float] | None = None,
+        vocal_mode: str = "solo",
     ) -> list[ArtifactRecord]:
         project = require_project_id(project_id)
         if not 40.0 <= bpm <= 240.0:
             raise ValueError("bpm must be between 40 and 240")
         instrumental_record, instrumental = self.store.read(instrumental_asset_id, project)
         vocal_record, vocal = self.store.read(vocal_asset_id, project)
+        if backing_vocal_asset_id is not None:
+            if backing_vocal_asset_id in {instrumental_asset_id, vocal_asset_id}:
+                raise ValueError("backing_vocal_asset_id must refer to an independent artifact")
+            if not -24.0 <= backing_gain_db <= 6.0:
+                raise ValueError("backing_gain_db must be between -24 and 6")
+            backing_record, backing = self.store.read(backing_vocal_asset_id, project)
+            if backing_record.filename in {"vocal_wet_original.wav", "vocal_reverb_original.wav"}:
+                raise ValueError("wet vocal and reverb residual are not independent backing vocals")
+        part_ids = additional_vocal_asset_ids or []
+        gains = additional_vocal_gains_db if additional_vocal_gains_db is not None else [-3.0] * len(part_ids)
+        expected_counts = {"solo": 0, "duet": 1}
+        if vocal_mode in expected_counts and len(part_ids) != expected_counts[vocal_mode]:
+            raise ValueError("vocal_mode and additional vocal count do not match")
+        if vocal_mode == "choir" and not 2 <= len(part_ids) <= 7 or vocal_mode not in {"solo", "duet", "choir"}:
+            raise ValueError("vocal_mode and additional vocal count do not match")
+        if len(gains) != len(part_ids) or any(not math.isfinite(gain) or not -24.0 <= gain <= 6.0 for gain in gains):
+            raise ValueError("additional vocal gains must match tracks and be between -24 and 6 dB")
+        all_ids = part_ids + [instrumental_asset_id, vocal_asset_id]
+        if backing_vocal_asset_id is not None:
+            all_ids.append(backing_vocal_asset_id)
+        if len(set(all_ids)) != len(all_ids):
+            raise ValueError("vocal parts must use distinct artifacts")
+        parts = [self.store.read(part_id, project) for part_id in part_ids]
         if not lyrics_lrc.strip() or len(lyrics_lrc.encode("utf-8")) > 1024 * 1024:
             raise ValueError("lyrics_lrc must contain 1 byte to 1 MiB of UTF-8 text")
+        files = {
+            "instrumental": (instrumental_record.filename, instrumental, instrumental_record.media_type),
+            "vocal": (vocal_record.filename, vocal, vocal_record.media_type),
+            "lyrics_lrc": ("lyrics.lrc", lyrics_lrc.encode("utf-8"), "text/plain; charset=utf-8"),
+        }
+        data = {"bpm": str(bpm)}
+        if backing_vocal_asset_id is not None:
+            files["backing_vocal"] = (backing_record.filename, backing, backing_record.media_type)
+            data["backing_gain_db"] = str(backing_gain_db)
+        upload_files = list(files.items())
+        if part_ids:
+            data["vocal_mode"] = vocal_mode
+            for (record, payload), gain in zip(parts, gains):
+                upload_files.append(("additional_vocals", (record.filename, payload, record.media_type)))
+            data["additional_vocal_gains_db"] = [str(gain) for gain in gains]
         archive = self._post(
             "Mixer",
             f"{self.service_urls.mixer}/v1/audio/masters",
-            files={
-                "instrumental": (instrumental_record.filename, instrumental, instrumental_record.media_type),
-                "vocal": (vocal_record.filename, vocal, vocal_record.media_type),
-                "lyrics_lrc": ("lyrics.lrc", lyrics_lrc.encode("utf-8"), "text/plain; charset=utf-8"),
-            },
-            data={"bpm": str(bpm)},
+            files=upload_files,
+            data=data,
         )
         expected = {
             "Final_Song_Master.wav": "audio/wav",

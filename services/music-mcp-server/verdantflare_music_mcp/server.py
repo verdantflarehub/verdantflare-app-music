@@ -15,12 +15,30 @@ from starlette.routing import Mount, Route
 
 from .artifacts import ArtifactError, ArtifactNotFound, ArtifactStore
 from .executor import MusicExecutor, ServiceURLs
-from .results import artifact_result
+from .results import artifact_result, structured_result
 
 
 store = ArtifactStore.from_environment()
 executor = MusicExecutor(store, ServiceURLs.from_environment())
 mcp = MCPServer("VerdantFlare Music")
+
+
+@mcp.tool(name="workflow.preflight")
+def workflow_preflight(
+    workflow: str,
+    voice_source: str | None = None,
+    voice_model_id: str | None = None,
+    require_local_redraw: bool = False,
+) -> types.CallToolResult:
+    """Check technical readiness, exact voice-model availability, and redraw capability before creation."""
+    return structured_result(
+        executor.preflight(
+            workflow=workflow,
+            voice_source=voice_source,
+            voice_model_id=voice_model_id,
+            require_local_redraw=require_local_redraw,
+        )
+    )
 
 
 def _csv_environment(name: str, defaults: list[str]) -> list[str]:
@@ -78,6 +96,37 @@ def music_generate(
         max_duration_seconds=max_duration_seconds,
     )
     return artifact_result(store, project_id, "music.generate", records)
+
+
+@mcp.tool(name="music.redraw")
+def music_redraw(
+    project_id: str,
+    audio_asset_id: str,
+    start_seconds: float,
+    end_seconds: float,
+    instructions: str,
+    revision_number: int,
+    lyrics: str = "",
+    seed: int = 7,
+    crossfade_seconds: float = 1.0,
+    preservation_mode: str = "balanced",
+    edit_strength: float = 0.5,
+) -> types.CallToolResult:
+    """Replace one bounded region through a configured conditioned-audio editor and return a full-song WAV."""
+    records = executor.redraw(
+        project_id=project_id,
+        audio_asset_id=audio_asset_id,
+        start_seconds=start_seconds,
+        end_seconds=end_seconds,
+        instructions=instructions,
+        lyrics=lyrics,
+        revision_number=revision_number,
+        seed=seed,
+        crossfade_seconds=crossfade_seconds,
+        preservation_mode=preservation_mode,
+        edit_strength=edit_strength,
+    )
+    return artifact_result(store, project_id, "music.redraw", records)
 
 
 @mcp.tool(name="stems.separate")
@@ -164,6 +213,11 @@ def mix_master(
     vocal_asset_id: str,
     lyrics_lrc: str,
     bpm: float,
+    backing_vocal_asset_id: str | None = None,
+    backing_gain_db: float = -6.0,
+    additional_vocal_asset_ids: list[str] | None = None,
+    additional_vocal_gains_db: list[float] | None = None,
+    vocal_mode: str = "solo",
 ) -> types.CallToolResult:
     """Mix and master approved project artifacts with aligned LRC text into final delivery artifacts."""
     records = executor.master(
@@ -172,6 +226,11 @@ def mix_master(
         vocal_asset_id=vocal_asset_id,
         lyrics_lrc=lyrics_lrc,
         bpm=bpm,
+        backing_vocal_asset_id=backing_vocal_asset_id,
+        backing_gain_db=backing_gain_db,
+        additional_vocal_asset_ids=additional_vocal_asset_ids,
+        additional_vocal_gains_db=additional_vocal_gains_db,
+        vocal_mode=vocal_mode,
     )
     return artifact_result(store, project_id, "mix.master", records)
 
