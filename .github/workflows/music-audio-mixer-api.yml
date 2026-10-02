@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           shellcheck services/${SERVICE}/*.sh
-          python3 -m pip install ./services/${SERVICE}
+          python3 -m pip install ./services/${SERVICE} httpx==0.28.1
           python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
     needs: check
