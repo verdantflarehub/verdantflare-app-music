@@ -13,7 +13,7 @@ import httpx
 from verdantflare_music_mcp.artifacts import ArtifactNotFound, ArtifactStore
 from verdantflare_music_mcp.duet import (
     DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice,
-    pcm16_wav, preview_duet, read_duet_plan,
+    pcm16_wav, preview_duet, read_duet_plan, validate_vocal_isolation,
 )
 from verdantflare_music_mcp.executor import ExecutionError, MusicExecutor, ServiceURLs
 
@@ -25,6 +25,17 @@ def wav(seconds: float, value: int = 1000, rate: int = 1000) -> bytes:
         audio.setsampwidth(2)
         audio.setframerate(rate)
         audio.writeframes(struct.pack("<h", value) * round(seconds * rate))
+    return out.getvalue()
+
+
+def patterned_wav(seconds: float, *, rate: int = 1000, offset: int = 0) -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(rate)
+        audio.writeframes(b"".join(struct.pack("<h", ((index * 173 + offset) % 6000) - 3000)
+                                   for index in range(round(seconds * rate))))
     return out.getvalue()
 
 
@@ -87,6 +98,15 @@ class DuetTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             pcm16_wav(b"not wav")
 
+    def test_vocal_isolation_rejects_missing_solo_and_backing_copy(self) -> None:
+        plan = build_duet_plan(lines(), bpm=120, style=STYLE, candidate_number=1)
+        backing = patterned_wav(24)
+        with self.assertRaisesRegex(ValueError, "contains the instrumental"):
+            validate_vocal_isolation(backing, backing, plan, "female")
+        with self.assertRaisesRegex(ValueError, "silent in a solo"):
+            validate_vocal_isolation(backing, wav(24, 0), plan, "female")
+        validate_vocal_isolation(backing, patterned_wav(24, offset=1200), plan, "female")
+
     def test_preflight_and_three_stage_generation(self) -> None:
         submitted = []
         fail_query = [False]
@@ -141,6 +161,7 @@ class DuetTest(unittest.TestCase):
             self.assertIn("batch_size=1", submitted[0])
             self.assertIn("text2music", submitted[0])
             self.assertIn("lego", submitted[1])
+            self.assertNotIn('name="instruction"', submitted[1])
             self.assertIn("src_audio", submitted[1])
             self.assertIn("track_name", submitted[1])
             self.assertEqual(backing_outputs[0].operation, "duet.task")

@@ -24,7 +24,7 @@ from .artifacts import (
     require_filename,
     require_project_id,
 )
-from .duet import DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice, pcm16_wav, preview_duet, read_duet_plan
+from .duet import DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice, pcm16_wav, preview_duet, read_duet_plan, validate_vocal_isolation
 
 
 class ExecutionError(RuntimeError):
@@ -760,7 +760,6 @@ class MusicExecutor:
         description = "bright natural female lead" if voice == "female" else "clear lower male lead"
         data = {
             "task_type": "lego", "model": self.service_urls.duet_model,
-            "instruction": "Generate only the isolated vocals track based on the audio context:",
             "prompt": f"{description} singing in Mandarin. No instruments. {plan['style']}",
             "lyrics": lyrics_for_voice(plan, voice),
             "vocal_language": "zh", "audio_duration": str(plan["duration_seconds"]),
@@ -781,6 +780,7 @@ class MusicExecutor:
             media_type="audio/wav", payload=raw,
         )
         try:
+            validate_vocal_isolation(backing, raw, plan, voice)
             masked = fit_vocal_to_backing(backing, raw, plan, voice)
         except ValueError as error:
             raise ExecutionError(f"duet vocal validation failed; raw Artifact {raw_record.artifact_id}: {error}") from error

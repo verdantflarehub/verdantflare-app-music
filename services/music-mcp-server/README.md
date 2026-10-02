@@ -1,6 +1,6 @@
 # Music MCP Server
 
-Music MCP Server v0.9.1 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具在收费或长任务前预检技术能力，导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐、Mixer 及可选 ACE-Step 1.5 重绘 API，并把结果持久化为项目范围的 Artifact。
+Music MCP Server v0.9.3 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具在收费或长任务前预检技术能力，导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐、Mixer 及可选 ACE-Step 1.5 重绘 API，并把结果持久化为项目范围的 Artifact。
 
 ## 工具
 
@@ -25,7 +25,7 @@ Music MCP Server v0.9.1 是音乐制作服务的可执行 MCP 边界。Streamabl
 
 多声部参数为 `vocal_mode=duet|choir`、`additional_vocal_asset_ids` 与可选的 `additional_vocal_gains_db`；对唱恰好追加一条，合唱追加两至七条已对齐的独立人声。`solo` 是默认值并保持旧调用。男声、女声或声部身份由各自的源人声及模型决定，工具不会从一条混合干声自动派生多位歌手。当前歌词对齐器只处理单条人声，重叠歌词需要另行取得真实、已批准的时间轴。
 
-纯歌词对唱走 `workflow.preflight(workflow="duet_generate")`，再依次调用四个 `duet.*` 工具。每句默认两小节，必须包含女声独唱、男声独唱和同唱句；客户端可先把纯歌词整理成逐句角色计划供创作审核。每版启动一次 `text2music` 和两次 `lego`，需 ACE-Step 1.5 base 或 xl-base 模型；turbo/sft 不支持此路径。推理提交后保存 `duet.task` 回执；若查询中断，使用相同参数和 `resume_task_asset_id` 恢复。时长校验失败的伴奏及人声校验失败的原始轨仍保留 Artifact 以便诊断。预混只是试听候选，不能替代逐轨听审；时间窗、时长和内容不同不证明男女音色、歌词、纯人声隔离或曲风达标。实际部署以工具清单和预检结果为准；未配置后端的部署预检会返回 `blocked`。
+纯歌词对唱走 `workflow.preflight(workflow="duet_generate")`，再依次调用四个 `duet.*` 工具。每句默认两小节，必须包含女声独唱、男声独唱和同唱句；客户端可先把纯歌词整理成逐句角色计划供创作审核。每版启动一次 `text2music` 和两次 `lego`，需 ACE-Step 1.5 base 或 xl-base 模型；turbo/sft 不支持此路径。`lego` 使用上游按 `track_name=Vocals` 生成的标准任务指令，不覆盖为自由文本。独唱区间若静音或与伴奏高度相关，拒绝登记处理后人声轨，保留原始轨用于诊断。推理提交后保存 `duet.task` 回执；若查询中断，使用相同参数和 `resume_task_asset_id` 恢复。时长校验失败的伴奏及人声校验失败的原始轨仍保留 Artifact 以便诊断。预混只是试听候选，不能替代逐轨听审；时间窗、时长和内容不同不证明男女音色、歌词、纯人声隔离或曲风达标。实际部署以工具清单和预检结果为准；未配置后端的部署预检会返回 `blocked`。
 
 UVR5 可选分离模型返回的 `backing_vocals_unreviewed.wav` 只是待审核资产。先试听是否含原主唱、错词与相位问题，再决定是否作为混音的独立和声输入；MCP 持久化不代表音质批准。
 

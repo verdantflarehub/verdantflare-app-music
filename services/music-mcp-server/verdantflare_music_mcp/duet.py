@@ -127,6 +127,40 @@ def wav_bytes(params: wave._wave_params, frames: bytes) -> bytes:
     return output.getvalue()
 
 
+def validate_vocal_isolation(backing: bytes, vocal: bytes, plan: dict[str, object], voice: str) -> None:
+    backing_params, backing_frames = pcm16_wav(backing)
+    vocal_params, vocal_frames = pcm16_wav(vocal)
+    if (backing_params.framerate, backing_params.nchannels) != (vocal_params.framerate, vocal_params.nchannels):
+        raise ValueError("duet vocal format does not match instrumental")
+    if abs(backing_params.nframes - vocal_params.nframes) > backing_params.framerate / 4:
+        raise ValueError("duet vocal duration differs from instrumental by over 0.25 seconds")
+
+    frame_size = backing_params.nchannels * 2
+    for line in plan["lines"]:
+        if line["voice"] != voice:
+            continue
+        start = round(line["start_seconds"] * backing_params.framerate)
+        end = min(backing_params.nframes, vocal_params.nframes,
+                  round(line["end_seconds"] * backing_params.framerate))
+        samples = []
+        for frame in range(start, end, max(1, backing_params.framerate // 1000)):
+            offset = frame * frame_size
+            samples.append((struct.unpack_from("<h", backing_frames, offset)[0],
+                            struct.unpack_from("<h", vocal_frames, offset)[0]))
+        if not samples:
+            raise ValueError(f"generated {voice} duet vocal has an empty solo interval")
+        backing_mean = sum(pair[0] for pair in samples) / len(samples)
+        vocal_mean = sum(pair[1] for pair in samples) / len(samples)
+        backing_energy = sum((pair[0] - backing_mean) ** 2 for pair in samples)
+        vocal_energy = sum((pair[1] - vocal_mean) ** 2 for pair in samples)
+        if sum(pair[1] ** 2 for pair in samples) / len(samples) < 8 ** 2:
+            raise ValueError(f"generated {voice} duet vocal is silent in a solo interval")
+        if backing_energy and vocal_energy:
+            overlap = sum((pair[0] - backing_mean) * (pair[1] - vocal_mean) for pair in samples)
+            if abs(overlap) / math.sqrt(backing_energy * vocal_energy) > 0.75:
+                raise ValueError(f"generated {voice} duet vocal contains the instrumental in a solo interval")
+
+
 def fit_vocal_to_backing(backing: bytes, vocal: bytes, plan: dict[str, object], voice: str) -> bytes:
     backing_params, _ = pcm16_wav(backing)
     vocal_params, vocal_frames = pcm16_wav(vocal)
