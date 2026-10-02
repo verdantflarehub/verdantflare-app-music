@@ -94,7 +94,7 @@ class DuetTest(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/health":
                 return httpx.Response(200, json={"status": "ok"})
-            if request.url.path == "/v1/models":
+            if request.url.path == "/v1/model_inventory":
                 return httpx.Response(200, json={"code": 200, "data": {"models": [{"name": "acestep-v15-base", "is_loaded": True}]}})
             if request.url.path == "/release_task":
                 body = request.content.decode("latin1")
@@ -136,6 +136,8 @@ class DuetTest(unittest.TestCase):
             self.assertEqual(len(submitted), 3)
             self.assertIn("task_type=text2music", submitted[0])
             self.assertIn("inference_steps=50", submitted[0])
+            self.assertIn("audio_duration=24", submitted[0])
+            self.assertIn("audio_duration=24", submitted[1])
             self.assertIn("batch_size=1", submitted[0])
             self.assertIn("text2music", submitted[0])
             self.assertIn("lego", submitted[1])
@@ -210,7 +212,7 @@ class DuetTest(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/health":
                 return httpx.Response(200, json={"status": "ok"})
-            if request.url.path == "/v1/models":
+            if request.url.path == "/v1/model_inventory":
                 return httpx.Response(200, json={"code": 200, "data": {
                     "models": [{"name": "acestep-v15-base", "is_loaded": False}],
                 }})

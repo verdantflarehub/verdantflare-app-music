@@ -537,7 +537,7 @@ class MusicExecutor:
                 try:
                     catalog = self._get_json(
                         "ACE-Step model catalog",
-                        f"{self.service_urls.music_editor}/v1/models",
+                        f"{self.service_urls.music_editor}/v1/model_inventory",
                         headers=self._music_editor_headers(),
                     )
                     data = self._ace_data(catalog, "model catalog")
@@ -719,7 +719,7 @@ class MusicExecutor:
         data = {
             "task_type": "text2music", "model": self.service_urls.duet_model,
             "prompt": f"Instrumental only, no vocals or spoken voice. {plan['style']}",
-            "lyrics": "[Instrumental]", "duration": str(plan["duration_seconds"]),
+            "lyrics": "[Instrumental]", "audio_duration": str(plan["duration_seconds"]),
             "bpm": str(plan["bpm"]), "seed": str(seed),
             "use_random_seed": "false", "audio_format": "wav",
             "inference_steps": "50", "batch_size": "1", "thinking": "false",
@@ -763,7 +763,7 @@ class MusicExecutor:
             "instruction": "Generate only the isolated vocals track based on the audio context:",
             "prompt": f"{description} singing in Mandarin. No instruments. {plan['style']}",
             "lyrics": lyrics_for_voice(plan, voice),
-            "vocal_language": "zh", "duration": str(plan["duration_seconds"]),
+            "vocal_language": "zh", "audio_duration": str(plan["duration_seconds"]),
             "bpm": str(plan["bpm"]), "seed": str(seed),
             "use_random_seed": "false", "audio_format": "wav",
             "inference_steps": "50", "batch_size": "1", "thinking": "false",
