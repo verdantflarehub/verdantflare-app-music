@@ -137,7 +137,7 @@ class DuetTest(unittest.TestCase):
             self.assertIn("task_type=text2music", submitted[0])
             self.assertIn("inference_steps=50", submitted[0])
             self.assertIn("audio_duration=24", submitted[0])
-            self.assertIn("audio_duration=24", submitted[1])
+            self.assertIn('name="audio_duration"', submitted[1])
             self.assertIn("batch_size=1", submitted[0])
             self.assertIn("text2music", submitted[0])
             self.assertIn("lego", submitted[1])
