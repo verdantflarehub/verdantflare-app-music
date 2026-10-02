@@ -95,7 +95,7 @@ class DuetTest(unittest.TestCase):
             if request.url.path == "/health":
                 return httpx.Response(200, json={"status": "ok"})
             if request.url.path == "/v1/models":
-                return httpx.Response(200, json={"code": 200, "data": {"models": [{"name": "acestep-v15-base"}]}})
+                return httpx.Response(200, json={"code": 200, "data": {"models": [{"name": "acestep-v15-base", "is_loaded": True}]}})
             if request.url.path == "/release_task":
                 body = request.content.decode("latin1")
                 submitted.append(body)
@@ -205,6 +205,26 @@ class DuetTest(unittest.TestCase):
                 with self.assertRaises(ExecutionError), mock.patch.object(executor, "_post_json") as post:
                     executor.duet_instrumental(project_id="duet", plan_asset_id=plan.artifact_id)
                 post.assert_not_called()
+
+    def test_preflight_requires_loaded_base_model(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/health":
+                return httpx.Response(200, json={"status": "ok"})
+            if request.url.path == "/v1/models":
+                return httpx.Response(200, json={"code": 200, "data": {
+                    "models": [{"name": "acestep-v15-base", "is_loaded": False}],
+                }})
+            raise AssertionError(request.url)
+
+        with tempfile.TemporaryDirectory() as directory:
+            executor = MusicExecutor(ArtifactStore(Path(directory)), ServiceURLs(
+                "http://music", "http://uvr", "http://rvc", "http://align", "http://mix",
+                music_editor="http://ace",
+            ), httpx.Client(transport=httpx.MockTransport(handler)))
+            result = executor.preflight(workflow="duet_generate")
+            self.assertEqual(result["status"], "blocked")
+            self.assertFalse(result["duet_generation"]["ready"])
+            self.assertIn("ACE-Step duet base model is not loaded", result["blocking_conditions"])
 
 
 if __name__ == "__main__":

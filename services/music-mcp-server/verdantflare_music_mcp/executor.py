@@ -543,7 +543,9 @@ class MusicExecutor:
                     data = self._ace_data(catalog, "model catalog")
                     models = data.get("models") if isinstance(data, dict) else None
                     duet_model_ready = isinstance(models, list) and any(
-                        isinstance(item, dict) and item.get("name") == self.service_urls.duet_model
+                        isinstance(item, dict)
+                        and item.get("name") == self.service_urls.duet_model
+                        and item.get("is_loaded") is True
                         for item in models
                     )
                 except ExecutionError:

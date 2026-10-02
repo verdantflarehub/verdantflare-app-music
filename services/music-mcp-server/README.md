@@ -1,6 +1,6 @@
 # Music MCP Server
 
-Music MCP Server v0.9.0 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具在收费或长任务前预检技术能力，导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐、Mixer 及可选 ACE-Step 1.5 重绘 API，并把结果持久化为项目范围的 Artifact。
+Music MCP Server v0.9.1 是音乐制作服务的可执行 MCP 边界。Streamable HTTP 入口为 `POST /mcp`；工具在收费或长任务前预检技术能力，导入受信任 S3/CDN 上的客户音频，调用集群内的 Music3、UVR5、RVC、歌词对齐、Mixer 及可选 ACE-Step 1.5 重绘 API，并把结果持久化为项目范围的 Artifact。
 
 ## 工具
 
@@ -65,7 +65,7 @@ Token 只能通过运行环境注入，不得写入镜像、清单或仓库。
 
 ## 成都集群验证
 
-镜像 `music-mcp-server-v0.9.0` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
+镜像 `music-mcp-server-v0.9.1` 由 `release` 流水线发布后，部署声明式清单。MCP 保持 ClusterIP，通过端口转发验证：
 
 ```bash
 kubectl --context chengdu.beagle -n verdantflare-music \
