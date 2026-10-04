@@ -214,7 +214,7 @@ class ExecutorTest(unittest.TestCase):
             if request.url.path == "/v1/voice-models":
                 return httpx.Response(
                     200,
-                    json={"models": [{"id": "mengsk-comfort-v2-20260901", "has_index": True}]},
+                    json={"data": [{"id": "mengsk-comfort-v2-20260901", "has_index": True}]},
                 )
             if request.url.path == "/health":
                 return httpx.Response(200, json={"status": "ok"})
@@ -247,7 +247,7 @@ class ExecutorTest(unittest.TestCase):
     def test_preflight_reports_missing_model_and_unconfigured_redraw(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/v1/voice-models":
-                return httpx.Response(200, json={"models": []})
+                return httpx.Response(200, json={"data": []})
             if request.url.path == "/health":
                 return httpx.Response(200, json={"status": "ok"})
             raise AssertionError(request.url.path)

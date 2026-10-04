@@ -509,7 +509,7 @@ class MusicExecutor:
         if model_id is not None:
             try:
                 payload = self._get_json("RVC model catalog", f"{self.service_urls.rvc}/v1/voice-models")
-                models = payload.get("models")
+                models = payload.get("data")
                 installed = {
                     item.get("id")
                     for item in models
