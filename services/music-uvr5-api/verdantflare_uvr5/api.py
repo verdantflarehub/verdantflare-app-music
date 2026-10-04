@@ -16,7 +16,12 @@ MODEL_ROOT = Path(os.environ.get("UVR5_MODEL_ROOT", "/models/audio-separator"))
 TEMP_ROOT = Path(os.environ.get("UVR5_TEMP_ROOT", "/tmp/uvr5"))
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 
-service = UVR5Service(MODEL_ROOT)
+service = UVR5Service(
+    MODEL_ROOT,
+    backing_model=os.environ.get("UVR5_BACKING_MODEL_FILENAME") or None,
+    backing_lead_stem=os.environ.get("UVR5_BACKING_LEAD_STEM") or None,
+    backing_vocal_stem=os.environ.get("UVR5_BACKING_VOCAL_STEM") or None,
+)
 app = FastAPI(title="VerdantFlare Music UVR5 API", version="1.0.0")
 
 
@@ -31,7 +36,9 @@ def health() -> JSONResponse:
             "models": {
                 "separation": SEPARATION_MODEL,
                 "dereverb": DEREVERB_MODEL,
+                "backing": service.backing_model,
             },
+            "backing_ready": service.backing_model is not None and (MODEL_ROOT / service.backing_model).is_file(),
         },
     )
 

@@ -61,5 +61,21 @@ install_model_file "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt" 91310757
 install_model_file "dereverb_mel_band_roformer_anvuew.yaml" 1846 \
     "1599d9ea717ea2b5b3bc55d936f752b8d0f67baaa3de95acd6d03259a2f37784"
 
+if [[ -n "${UVR5_BACKING_MODEL_FILENAME:-}" ]]; then
+    if [[ -z "${UVR5_BACKING_LEAD_STEM:-}" || -z "${UVR5_BACKING_VOCAL_STEM:-}" ||
+          ! "${UVR5_BACKING_MODEL_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "UVR5 backing model requires both stem names and a SHA-256" >&2
+        exit 1
+    fi
+    if [[ "${UVR5_BACKING_MODEL_FILENAME}" == */* || ! -f "${UVR5_MODEL_ROOT}/${UVR5_BACKING_MODEL_FILENAME}" ]]; then
+        echo "UVR5 backing model must be a provisioned file in UVR5_MODEL_ROOT" >&2
+        exit 1
+    fi
+    if [[ "$(sha256sum "${UVR5_MODEL_ROOT}/${UVR5_BACKING_MODEL_FILENAME}" | cut --delimiter=' ' --fields=1)" != "${UVR5_BACKING_MODEL_SHA256}" ]]; then
+        echo "UVR5 backing model SHA-256 mismatch" >&2
+        exit 1
+    fi
+fi
+
 exec python3 -m uvicorn verdantflare_uvr5.api:app \
     --host 0.0.0.0 --port 8000 --workers 1 "$@"

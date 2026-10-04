@@ -17,8 +17,21 @@ class SeparationFailed(RuntimeError):
 
 
 class UVR5Service:
-    def __init__(self, model_root: Path) -> None:
+    def __init__(
+        self,
+        model_root: Path,
+        backing_model: str | None = None,
+        backing_lead_stem: str | None = None,
+        backing_vocal_stem: str | None = None,
+    ) -> None:
         self.model_root = model_root
+        if any((backing_model, backing_lead_stem, backing_vocal_stem)) and not all((backing_model, backing_lead_stem, backing_vocal_stem)):
+            raise ValueError("backing model filename and both source stem names must be configured together")
+        if backing_model is not None and (Path(backing_model).name != backing_model or backing_lead_stem == backing_vocal_stem):
+            raise ValueError("backing model filename must be safe and source stems must be distinct")
+        self.backing_model = backing_model
+        self.backing_lead_stem = backing_lead_stem
+        self.backing_vocal_stem = backing_vocal_stem
 
     def _separator(self, output_directory: Path):
         from audio_separator.separator import Separator
@@ -87,12 +100,37 @@ class UVR5Service:
                 },
             )
             vocal_dry = self._find_output(dereverbed, "vocal_dry", work_directory)
+            vocal_reverb = self._find_output(dereverbed, "discarded_reverb", work_directory)
+            if self.backing_model is not None:
+                if not (self.model_root / self.backing_model).is_file():
+                    raise SeparationFailed("configured backing model is not installed")
+                separator.load_model(model_filename=self.backing_model)
+                backing_outputs = separator.separate(
+                    str(vocal_wet),
+                    custom_output_names={
+                        self.backing_lead_stem: "vocal_lead_reference",
+                        self.backing_vocal_stem: "backing_vocals_unreviewed",
+                    },
+                )
+                lead_reference_raw = self._find_output(backing_outputs, "vocal_lead_reference", work_directory)
+                backing_raw = self._find_output(backing_outputs, "backing_vocals_unreviewed", work_directory)
 
         instrumental = work_directory / "instrumental.wav"
         vocal = work_directory / "vocal_dry_original.wav"
+        wet = work_directory / "vocal_wet_original.wav"
+        reverb = work_directory / "vocal_reverb_original.wav"
+        extra_files: list[Path] = []
         try:
             self._normalize(instrumental_raw, instrumental)
             self._normalize(vocal_dry, vocal)
+            self._normalize(vocal_wet, wet)
+            self._normalize(vocal_reverb, reverb)
+            if self.backing_model is not None:
+                lead_reference = work_directory / "vocal_lead_reference.wav"
+                backing = work_directory / "backing_vocals_unreviewed.wav"
+                self._normalize(lead_reference_raw, lead_reference)
+                self._normalize(backing_raw, backing)
+                extra_files = [lead_reference, backing]
         except subprocess.CalledProcessError as error:
             raise SeparationFailed("failed to encode separated stems") from error
 
@@ -101,11 +139,17 @@ class UVR5Service:
             "bit_depth": 24,
             "separation_model": SEPARATION_MODEL,
             "dereverb_model": DEREVERB_MODEL,
-            "files": [instrumental.name, vocal.name],
+            "backing_model": self.backing_model,
+            "backing_requires_review": self.backing_model is not None,
+            "files": [path.name for path in (instrumental, vocal, wet, reverb, *extra_files)],
         }
         archive_path = work_directory / "stems.zip"
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.write(instrumental, instrumental.name)
             archive.write(vocal, vocal.name)
+            archive.write(wet, wet.name)
+            archive.write(reverb, reverb.name)
+            for path in extra_files:
+                archive.write(path, path.name)
             archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
         return archive_path

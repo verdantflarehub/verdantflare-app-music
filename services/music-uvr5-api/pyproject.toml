@@ -1,6 +1,6 @@
 [project]
 name = "verdantflare-music-uvr5-api"
-version = "0.1.8"
+version = "0.1.9"
 description = "VerdantFlare music-uvr5-api service"
 requires-python = ">=3.11"
 dependencies = [

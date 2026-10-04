@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import types
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -75,7 +77,17 @@ class UVR5ServiceTest(unittest.TestCase):
             ):
                 archive = service.separate(source, root)
 
-            self.assertTrue(archive.is_file())
+            with zipfile.ZipFile(archive) as payload:
+                self.assertEqual(
+                    set(payload.namelist()),
+                    {
+                        "instrumental.wav",
+                        "vocal_dry_original.wav",
+                        "vocal_wet_original.wav",
+                        "vocal_reverb_original.wav",
+                        "manifest.json",
+                    },
+                )
 
         self.assertEqual(
             calls,
@@ -84,6 +96,44 @@ class UVR5ServiceTest(unittest.TestCase):
                 {"Noreverb": "vocal_dry", "Reverb": "discarded_reverb"},
             ],
         )
+
+    def test_optional_backing_model_returns_unreviewed_stems(self) -> None:
+        calls = []
+
+        class FakeSeparator:
+            def load_model(self, model_filename):
+                calls.append(model_filename)
+
+            def separate(self, source, custom_output_names):
+                outputs = []
+                for name in custom_output_names.values():
+                    path = Path(source).parent / f"{name}.wav"
+                    path.touch()
+                    outputs.append(path.name)
+                return outputs
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            models = root / "models"
+            models.mkdir()
+            (models / "lead-backing.ckpt").touch()
+            source = root / "input.wav"
+            source.touch()
+            service = UVR5Service(models, "lead-backing.ckpt", "Lead Vocals", "Backing Vocals")
+            with (
+                patch.object(service, "_separator", return_value=FakeSeparator()),
+                patch.object(service, "_normalize", side_effect=lambda _, output: output.touch()),
+            ):
+                archive = service.separate(source, root)
+            with zipfile.ZipFile(archive) as payload:
+                self.assertIn("vocal_lead_reference.wav", payload.namelist())
+                self.assertIn("backing_vocals_unreviewed.wav", payload.namelist())
+                self.assertTrue(json.loads(payload.read("manifest.json"))["backing_requires_review"])
+            self.assertEqual(calls[-1], "lead-backing.ckpt")
+
+    def test_optional_backing_model_requires_complete_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "configured together"):
+            UVR5Service(Path("/models"), backing_model="lead-backing.ckpt")
 
 
 if __name__ == "__main__":

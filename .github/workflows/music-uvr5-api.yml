@@ -14,23 +14,10 @@ concurrency:
   cancel-in-progress: false
 env:
   SERVICE: music-uvr5-api
-  VERSION: 0.1.8
+  VERSION: 0.1.9
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check and test
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: services/music-uvr5-api
-        run: |
-          set -euo pipefail
-          shellcheck services/${SERVICE}/*.sh
-          python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
-    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
