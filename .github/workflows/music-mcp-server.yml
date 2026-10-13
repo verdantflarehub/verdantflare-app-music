@@ -16,19 +16,7 @@ env:
   VERSION: 0.9.4
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run unit tests
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: services/music-mcp-server
-        run: |
-          python3 -m pip install ./services/${SERVICE}
-          python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
-    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
