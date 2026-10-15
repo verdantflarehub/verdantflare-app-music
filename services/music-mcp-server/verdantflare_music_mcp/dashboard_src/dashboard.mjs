@@ -338,6 +338,23 @@ function initThemeAndBridge() {
     sdk?.theme?.subscribe?.((next) => {
       applyTheme(typeof next === "object" ? next.resolved || next.mode : next);
     });
+    const parseSdkPath = (p) => {
+      if (typeof p !== "string") return null;
+      const pathname = p.split("?")[0];
+      if (pathname === "/models") return "models";
+      if (pathname === "/mcp") return "mcp";
+      if (pathname.startsWith("/tasks/") && pathname.length > 7) return `task=${pathname.slice(7)}`;
+      return "tasks";
+    };
+    const initNav = sdk?.navigation?.get?.();
+    if (initNav?.path) {
+      const mapped = parseSdkPath(initNav.path);
+      if (mapped) currentRoute = mapped;
+    }
+    sdk?.navigation?.subscribe?.((state) => {
+      const mapped = parseSdkPath(state?.path);
+      if (mapped && mapped !== currentRoute) syncRoute(mapped, false);
+    });
   } catch {}
 
   window.addEventListener("message", (ev) => {
@@ -606,7 +623,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.6";
+    const ver = mcpStatus.app_version || "0.9.7";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
@@ -809,9 +826,22 @@ async function renderTaskDetail(taskId) {
 
 let currentRoute = location.hash.slice(1) || "tasks";
 
-function syncRoute(nextRoute) {
+function syncRoute(nextRoute, notifyHost = true) {
   if (typeof nextRoute === "string" && nextRoute) {
     currentRoute = nextRoute;
+    if (notifyHost) {
+      const sdkPath =
+        nextRoute === "models"
+          ? "/models"
+          : nextRoute === "mcp"
+            ? "/mcp"
+            : nextRoute.startsWith("task=")
+              ? `/tasks/${nextRoute.slice(5)}`
+              : "/";
+      try {
+        sdk?.navigation?.request?.({ target: "app", path: sdkPath })?.catch?.(() => {});
+      } catch {}
+    }
   } else if (location.hash.slice(1)) {
     currentRoute = location.hash.slice(1);
   }

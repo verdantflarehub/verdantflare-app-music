@@ -36,7 +36,7 @@ class DashboardAndTasksTest(unittest.TestCase):
         source_dir = Path(server.__file__).resolve().parent / "dashboard_src"
         with tempfile.TemporaryDirectory() as out_dir:
             declaration = build_dashboard_assets(source_dir, out_dir, version=__version__)
-            self.assertEqual(declaration["appId"], "music-mcp-server")
+            self.assertEqual(declaration["appId"], "music-mcp")
             self.assertEqual(declaration["appVersion"], __version__)
             self.assertEqual(declaration["dashboard"]["adapter"], "wujie")
             self.assertEqual(declaration["dashboard"]["appApiPolicyRef"], "music-mcp-dashboard-v1")
@@ -92,7 +92,7 @@ class DashboardAndTasksTest(unittest.TestCase):
                 # 1. Internal declaration & index accessible without Bearer token (Studio RegisteredSource)
                 decl_resp = client.get("/internal/dashboard-declaration")
                 self.assertEqual(decl_resp.status_code, 200)
-                self.assertEqual(decl_resp.json()["appId"], "music-mcp-server")
+                self.assertEqual(decl_resp.json()["appId"], "music-mcp")
 
                 idx_resp = client.get("/internal/dashboard-index")
                 self.assertEqual(idx_resp.status_code, 200)

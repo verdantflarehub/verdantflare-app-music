@@ -62,7 +62,7 @@ def build(source: Path | str, output: Path | str, version: str = __version__) ->
     )
     declaration = {
         "schemaVersion": 1,
-        "appId": "music-mcp-server",
+        "appId": "music-mcp",
         "appVersion": version,
         "dashboard": {
             "entryRef": "dashboard/index.html",
@@ -104,7 +104,7 @@ class DashboardAssets:
             or set(declaration) != {"schemaVersion", "appId", "appVersion", "dashboard"}
             or type(declaration["schemaVersion"]) is not int
             or declaration["schemaVersion"] != 1
-            or declaration["appId"] != "music-mcp-server"
+            or declaration["appId"] != "music-mcp"
             or declaration["appVersion"] != version
         ):
             raise ValueError("INVALID_DASHBOARD_ARTIFACT")

@@ -507,7 +507,7 @@ class MusicDashboard:
         reg = self.registry.status_snapshot()
         return {
             "schema_version": 1,
-            "app_id": "music-mcp-server",
+            "app_id": "music-mcp",
             "app_version": __version__,
             "gateway": {
                 "external_entry": "STUDIO_MCP_URL (Single Studio Gateway)",
@@ -528,7 +528,7 @@ class MusicDashboard:
 
         return {
             "schema_version": 1,
-            "app_id": "music-mcp-server",
+            "app_id": "music-mcp",
             "app_version": __version__,
             "updated_at": datetime.now(UTC).isoformat(),
             "kpis": {
