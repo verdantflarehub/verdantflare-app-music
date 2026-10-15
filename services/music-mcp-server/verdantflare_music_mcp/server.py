@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import hmac
 import os
+from typing import Any
 
 from mcp import types
 from mcp.server.mcpserver import MCPServer
@@ -13,15 +14,39 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 
-from .artifacts import ArtifactError, ArtifactNotFound, ArtifactStore
+from . import __version__
+from .artifacts import ArtifactError, ArtifactNotFound, ArtifactRecord, ArtifactStore
+from .dashboard import MusicDashboard
 from .duet import DuetLine
 from .executor import MusicExecutor, ServiceURLs
+from .registry import EtcdRegistry
 from .results import artifact_result, structured_result
+from .tasks import TaskStore
 
 
 store = ArtifactStore.from_environment()
+task_store = TaskStore(store)
 executor = MusicExecutor(store, ServiceURLs.from_environment())
 mcp = MCPServer("VerdantFlare Music")
+
+
+def _emit_artifact_result(
+    project_id: str,
+    operation: str,
+    records: list[ArtifactRecord],
+    params: dict[str, Any] | None = None,
+) -> types.CallToolResult:
+    try:
+        active_task_store = task_store if task_store.store is store else TaskStore(store)
+        active_task_store.record_operation(
+            project_id=project_id,
+            operation=operation,
+            records=records,
+            params=params,
+        )
+    except Exception:
+        pass
+    return artifact_result(store, project_id, operation, records)
 
 
 @mcp.tool(name="workflow.preflight")
@@ -75,7 +100,12 @@ def asset_import(
         filename=filename,
         expected_sha256=expected_sha256,
     )
-    return artifact_result(store, project_id, "asset.import", records)
+    return _emit_artifact_result(
+        project_id,
+        "asset.import",
+        records,
+        {"source_url": source_url, "filename": filename},
+    )
 
 
 @mcp.tool(name="music.generate")
@@ -96,7 +126,18 @@ def music_generate(
         seed=seed,
         max_duration_seconds=max_duration_seconds,
     )
-    return artifact_result(store, project_id, "music.generate", records)
+    return _emit_artifact_result(
+        project_id,
+        "music.generate",
+        records,
+        {
+            "lyrics": lyrics,
+            "instructions": instructions,
+            "candidate_number": candidate_number,
+            "seed": seed,
+            "max_duration_seconds": max_duration_seconds,
+        },
+    )
 
 
 @mcp.tool(name="duet.plan")
@@ -115,20 +156,34 @@ def duet_plan(
         style=style,
         candidate_number=candidate_number,
     )
-    return artifact_result(store, project_id, "duet.plan", records)
+    return _emit_artifact_result(
+        project_id,
+        "duet.plan",
+        records,
+        {"bpm": bpm, "style": style, "candidate_number": candidate_number},
+    )
 
 
 @mcp.tool(name="duet.instrumental")
 def duet_instrumental(
-    project_id: str, plan_asset_id: str, seed: int = 7,
+    project_id: str,
+    plan_asset_id: str,
+    seed: int = 7,
     resume_task_asset_id: str | None = None,
 ) -> types.CallToolResult:
     """Generate an instrumental on the approved duet timeline with ACE-Step base."""
     records = executor.duet_instrumental(
-        project_id=project_id, plan_asset_id=plan_asset_id, seed=seed,
+        project_id=project_id,
+        plan_asset_id=plan_asset_id,
+        seed=seed,
         resume_task_asset_id=resume_task_asset_id,
     )
-    return artifact_result(store, project_id, "duet.instrumental", records)
+    return _emit_artifact_result(
+        project_id,
+        "duet.instrumental",
+        records,
+        {"plan_asset_id": plan_asset_id, "seed": seed},
+    )
 
 
 @mcp.tool(name="duet.vocal")
@@ -149,7 +204,12 @@ def duet_vocal(
         seed=seed,
         resume_task_asset_id=resume_task_asset_id,
     )
-    return artifact_result(store, project_id, "duet.vocal", records)
+    return _emit_artifact_result(
+        project_id,
+        "duet.vocal",
+        records,
+        {"plan_asset_id": plan_asset_id, "instrumental_asset_id": instrumental_asset_id, "voice": voice},
+    )
 
 
 @mcp.tool(name="duet.preview")
@@ -168,7 +228,17 @@ def duet_preview(
         female_asset_id=female_asset_id,
         male_asset_id=male_asset_id,
     )
-    return artifact_result(store, project_id, "duet.preview", records)
+    return _emit_artifact_result(
+        project_id,
+        "duet.preview",
+        records,
+        {
+            "plan_asset_id": plan_asset_id,
+            "instrumental_asset_id": instrumental_asset_id,
+            "female_asset_id": female_asset_id,
+            "male_asset_id": male_asset_id,
+        },
+    )
 
 
 @mcp.tool(name="music.redraw")
@@ -199,14 +269,30 @@ def music_redraw(
         preservation_mode=preservation_mode,
         edit_strength=edit_strength,
     )
-    return artifact_result(store, project_id, "music.redraw", records)
+    return _emit_artifact_result(
+        project_id,
+        "music.redraw",
+        records,
+        {
+            "audio_asset_id": audio_asset_id,
+            "start_seconds": start_seconds,
+            "end_seconds": end_seconds,
+            "instructions": instructions,
+            "revision_number": revision_number,
+        },
+    )
 
 
 @mcp.tool(name="stems.separate")
 def stems_separate(project_id: str, audio_asset_id: str) -> types.CallToolResult:
     """Separate a persisted project audio artifact into instrumental and dry vocal artifacts."""
     records = executor.separate_stems(project_id=project_id, audio_asset_id=audio_asset_id)
-    return artifact_result(store, project_id, "stems.separate", records)
+    return _emit_artifact_result(
+        project_id,
+        "stems.separate",
+        records,
+        {"audio_asset_id": audio_asset_id},
+    )
 
 
 @mcp.tool(name="voice.train")
@@ -225,14 +311,24 @@ def voice_train(
         epochs=epochs,
         batch_size=batch_size,
     )
-    return artifact_result(store, project_id, "voice.train", records)
+    return _emit_artifact_result(
+        project_id,
+        "voice.train",
+        records,
+        {"audio_asset_id": audio_asset_id, "model_id": model_id, "epochs": epochs},
+    )
 
 
 @mcp.tool(name="voice.prepare")
 def voice_prepare(project_id: str, audio_asset_ids: list[str]) -> types.CallToolResult:
     """Prepare 1-20 authorized recordings as deterministic RVC training material for human review."""
     records = executor.prepare_voice(project_id=project_id, audio_asset_ids=audio_asset_ids)
-    return artifact_result(store, project_id, "voice.prepare", records)
+    return _emit_artifact_result(
+        project_id,
+        "voice.prepare",
+        records,
+        {"audio_asset_ids": audio_asset_ids},
+    )
 
 
 @mcp.tool(name="voice.convert")
@@ -259,7 +355,18 @@ def voice_convert(
         rms_mix_rate=rms_mix_rate,
         protect=protect,
     )
-    return artifact_result(store, project_id, "voice.convert", records)
+    return _emit_artifact_result(
+        project_id,
+        "voice.convert",
+        records,
+        {
+            "audio_asset_id": audio_asset_id,
+            "model_id": model_id,
+            "pitch_shift": pitch_shift,
+            "f0_method": f0_method,
+            "index_rate": index_rate,
+        },
+    )
 
 
 @mcp.tool(name="lyrics.align")
@@ -276,7 +383,12 @@ def lyrics_align(
         lyrics=lyrics,
         language=language,
     )
-    return artifact_result(store, project_id, "lyrics.align", records)
+    return _emit_artifact_result(
+        project_id,
+        "lyrics.align",
+        records,
+        {"vocal_asset_id": vocal_asset_id, "lyrics": lyrics, "language": language},
+    )
 
 
 @mcp.tool(name="mix.master")
@@ -305,7 +417,41 @@ def mix_master(
         additional_vocal_gains_db=additional_vocal_gains_db,
         vocal_mode=vocal_mode,
     )
-    return artifact_result(store, project_id, "mix.master", records)
+    return _emit_artifact_result(
+        project_id,
+        "mix.master",
+        records,
+        {
+            "instrumental_asset_id": instrumental_asset_id,
+            "vocal_asset_id": vocal_asset_id,
+            "lyrics_lrc": lyrics_lrc,
+            "bpm": bpm,
+            "vocal_mode": vocal_mode,
+        },
+    )
+
+
+def _extract_tools_schema() -> list[dict[str, Any]]:
+    raw_tools = getattr(getattr(mcp, "_tool_manager", None), "list_tools", lambda: [])()
+    items: list[dict[str, Any]] = []
+    for t in raw_tools:
+        name = getattr(t, "name", "")
+        desc = getattr(t, "description", "") or ""
+        params = getattr(t, "parameters", None) or getattr(t, "input_schema", None) or {}
+        if name:
+            items.append({"name": name, "description": desc, "inputSchema": params})
+    return items
+
+
+TOOLS_SCHEMA = _extract_tools_schema()
+registry = EtcdRegistry(domain="music", tools=TOOLS_SCHEMA, version=__version__)
+dashboard = MusicDashboard(
+    store=store,
+    tasks=task_store,
+    executor=executor,
+    registry=registry,
+    tools_schema=TOOLS_SCHEMA,
+)
 
 
 async def health(request: Request) -> JSONResponse:
@@ -313,7 +459,14 @@ async def health(request: Request) -> JSONResponse:
         store.ensure_ready()
     except ArtifactError:
         return JSONResponse({"status": "unavailable", "contract_version": "v1"}, status_code=503)
-    return JSONResponse({"status": "ok", "contract_version": "v1", "execution": "direct"})
+    return JSONResponse(
+        {
+            "status": "ok",
+            "contract_version": "v1",
+            "version": __version__,
+            "execution": "direct",
+        }
+    )
 
 
 async def artifact_content(request: Request) -> Response:
@@ -328,12 +481,15 @@ async def artifact_content(request: Request) -> Response:
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
+    PUBLIC_INTERNAL_PREFIXES = ("/internal/dashboard", "/dashboard", "/api/")
+
     def __init__(self, app: Starlette, token: str | None) -> None:
         super().__init__(app)
         self.token = token
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path == "/health" or self.token is None:
+        path = request.url.path
+        if path == "/health" or path.startswith(self.PUBLIC_INTERNAL_PREFIXES) or self.token is None:
             return await call_next(request)
         authorization = request.headers.get("authorization", "")
         expected = f"Bearer {self.token}"
@@ -345,14 +501,20 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
     store.ensure_ready()
-    async with mcp.session_manager.run():
-        yield
+    task_store.sync_from_artifacts()
+    await registry.start()
+    try:
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        await registry.stop()
 
 
 app = Starlette(
     routes=[
         Route("/health", health),
         Route("/artifacts/{artifact_id:str}/content", artifact_content),
+        *dashboard.routes(),
         Mount(
             "/",
             app=mcp.streamable_http_app(
