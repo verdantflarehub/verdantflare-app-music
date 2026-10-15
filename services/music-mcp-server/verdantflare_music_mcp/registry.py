@@ -68,14 +68,18 @@ class EtcdRegistry:
             self._client = httpx.AsyncClient(timeout=5.0)
         return self._client
 
-    def build_metadata(self) -> dict[str, Any]:
+    def build_metadata(
+        self, domain: str | None = None, tools: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        target_domain = domain or self.domain
+        target_tools = tools if tools is not None else self.tools
         return {
-            "domain": self.domain,
+            "domain": target_domain,
             "endpoint": self.service_endpoint,
             "health_endpoint": self.health_endpoint,
             "version": self.version,
-            "updated_at": datetime.now(UTC).isoformat(),
-            "tools": self.tools,
+            "updated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "tools": target_tools,
         }
 
     def status_snapshot(self) -> dict[str, Any]:
@@ -118,22 +122,36 @@ class EtcdRegistry:
 
         self._lease_id = str(grant_resp["ID"])
 
-        key = f"/verdantflare/mcp/services/{self.domain}"
-        value = json.dumps(self.build_metadata(), ensure_ascii=False)
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for tool in self.tools:
+            name = str(tool.get("name", ""))
+            prefix = name.split(".", 1)[0] if "." in name else self.domain
+            grouped.setdefault(prefix, []).append(tool)
+        if not grouped:
+            grouped[self.domain] = []
 
-        key_b64 = base64.b64encode(key.encode("utf-8")).decode("ascii")
-        value_b64 = base64.b64encode(value.encode("utf-8")).decode("ascii")
+        all_ok = True
+        for prefix, prefix_tools in grouped.items():
+            key = f"/verdantflare/mcp/services/{prefix}"
+            value = json.dumps(
+                self.build_metadata(domain=prefix, tools=prefix_tools), ensure_ascii=False
+            )
+            key_b64 = base64.b64encode(key.encode("utf-8")).decode("ascii")
+            value_b64 = base64.b64encode(value.encode("utf-8")).decode("ascii")
+            put_resp = await self._request(
+                "/v3/kv/put",
+                {"key": key_b64, "value": value_b64, "lease": self._lease_id},
+            )
+            if put_resp is None:
+                all_ok = False
 
-        put_resp = await self._request(
-            "/v3/kv/put",
-            {"key": key_b64, "value": value_b64, "lease": self._lease_id},
-        )
-        if put_resp is not None:
+        if all_ok:
             self._registered = True
-            self._last_heartbeat_at = datetime.now(UTC).isoformat()
+            self._last_heartbeat_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
             logger.info(
-                "[EtcdRegistry] Successfully registered '%s' (lease=%s) -> %s",
+                "[EtcdRegistry] Successfully registered '%s' (%d prefixes, lease=%s) -> %s",
                 self.domain,
+                len(grouped),
                 self._lease_id,
                 self.service_endpoint,
             )

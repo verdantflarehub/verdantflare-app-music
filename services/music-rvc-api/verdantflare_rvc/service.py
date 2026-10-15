@@ -13,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 def _create_upstream_config(config_type: Any) -> Any:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            try:
+                torch.zeros(1, device="cuda:0").half()
+            except Exception:
+                torch.cuda.is_available = lambda: False
+    except Exception:
+        pass
+
     process_arguments = sys.argv
     try:
         sys.argv = process_arguments[:1]
