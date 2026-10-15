@@ -25,7 +25,7 @@
   --page-bg: linear-gradient(140deg, #eef2ef, #e7ece7);
 }
 
-:root[data-theme="dark"] {
+[data-theme="dark"] {
   color-scheme: dark;
   --bg: #111310;
   --panel: #1a1c19;
@@ -528,7 +528,7 @@ svg.icon {
   backdrop-filter: blur(4px);
 }
 
-:root[data-theme="dark"] .image-times {
+[data-theme="dark"] .image-times {
   background: rgba(20, 22, 19, .78);
 }
 

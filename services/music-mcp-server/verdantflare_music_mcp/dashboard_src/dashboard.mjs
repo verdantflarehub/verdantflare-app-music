@@ -322,6 +322,9 @@ function notifyResize() {
 function applyTheme(themeValue) {
   const t = themeValue === "dark" ? "dark" : "light";
   document.documentElement.dataset.theme = t;
+  if (document.body) {
+    document.body.dataset.theme = t;
+  }
 }
 
 function initThemeAndBridge() {
@@ -804,8 +807,15 @@ async function renderTaskDetail(taskId) {
   notifyResize();
 }
 
-function syncRoute() {
-  const rawHash = location.hash.slice(1) || "tasks";
+let currentRoute = location.hash.slice(1) || "tasks";
+
+function syncRoute(nextRoute) {
+  if (typeof nextRoute === "string" && nextRoute) {
+    currentRoute = nextRoute;
+  } else if (location.hash.slice(1)) {
+    currentRoute = location.hash.slice(1);
+  }
+  const rawHash = currentRoute || "tasks";
 
   if (rawHash.startsWith("task=")) {
     const taskId = decodeURIComponent(rawHash.slice(5));
@@ -903,9 +913,26 @@ async function refreshDashboardData(silent = false) {
 
 // Interactive Events
 document.addEventListener("click", async (e) => {
+  const tabLink = e.target.closest(".app-tab[data-tab]");
+  if (tabLink) {
+    e.preventDefault();
+    syncRoute(tabLink.dataset.tab);
+    return;
+  }
+
+  const navBackLink = e.target.closest("[data-nav-back]");
+  if (navBackLink) {
+    e.preventDefault();
+    syncRoute(navBackLink.dataset.navBack || "tasks");
+    return;
+  }
+
   const openTaskLink = e.target.closest("[data-open-task]");
   if (openTaskLink) {
+    e.preventDefault();
     savedTasksScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    syncRoute(`task=${encodeURIComponent(openTaskLink.dataset.openTask)}`);
+    return;
   }
 
   const stBtn = e.target.closest("[data-status]");
@@ -1100,7 +1127,7 @@ refreshDashboardData(true).finally(() => {
 });
 
 pollTimer = setInterval(() => {
-  if (isPageActive && (!location.hash || location.hash === "#tasks")) {
+  if (isPageActive && (!currentRoute || currentRoute === "tasks")) {
     refreshDashboardData(true);
   }
 }, 10000);
