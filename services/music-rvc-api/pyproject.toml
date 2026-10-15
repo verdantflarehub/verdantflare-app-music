@@ -1,6 +1,6 @@
 [project]
 name = "verdantflare-music-rvc-api"
-version = "0.2.2"
+version = "0.2.3"
 description = "VerdantFlare music-rvc-api service"
 requires-python = ">=3.11"
 # PyTorch 2.4.1 / torchaudio 2.4.1 / torchvision 0.19.1 are provided by Dockerfile.
