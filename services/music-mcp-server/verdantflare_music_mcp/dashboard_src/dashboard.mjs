@@ -502,12 +502,13 @@ function initThemeAndBridge() {
       refreshDashboardData(true);
     });
     sdk?.lifecycle?.onDeactivated?.(() => {
-      isPageActive = false;
+      isPageActive = false; resetAudioPreview();
     });
   } catch {}
 
   document.addEventListener("visibilitychange", () => {
     isPageActive = document.visibilityState !== "hidden";
+    if (!isPageActive) resetAudioPreview();
   });
 }
 
@@ -727,7 +728,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.10";
+    const ver = mcpStatus.app_version || "0.9.11";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
@@ -759,38 +760,61 @@ function renderMcpSection() {
   notifyResize();
 }
 
-async function loadAudioPreviewForStem(stem) {
+let audioRevision = 0, audioLoad = null;
+function resetAudioPreview() {
+  audioRevision++; audioLoad = null;
   const audio = $("#audioElement");
-  const statusEl = $("#playerStatusText");
-  if (!audio || !stem) return;
-  audio.pause();
+  audio?.pause(); audio?.removeAttribute("src");
   $("#playToggleBtn").textContent = "▶ 播放";
   $("#waveProgress").style.width = "0%";
-  document.querySelectorAll("#detailWaveBars .wave-bar").forEach((b) => b.classList.remove("played"));
-
-  if (!stem.media_type?.startsWith("audio/") && !stem.name?.toLowerCase().endsWith(".wav") && !stem.name?.toLowerCase().endsWith(".mp3")) {
-    audio.removeAttribute("src");
-    statusEl.textContent = "非音频产物";
-    return;
-  }
-
-  try {
-    statusEl.textContent = "加载试听流...";
-    let dataUrl = previewCache.get(stem.artifact_id);
-    if (!dataUrl) {
-      const res = await apiRequest("GET", `/api/artifacts/${encodeURIComponent(stem.artifact_id)}/preview`);
-      if (res?.data_url) {
-        dataUrl = res.data_url;
-        previewCache.set(stem.artifact_id, dataUrl);
+}
+function selectAudioStem(stem) {
+  resetAudioPreview();
+  const available = !!stem && (stem.media_type?.startsWith("audio/") || /\.(wav|mp3|flac|ogg|m4a)$/i.test(stem.name || ""));
+  $("#playToggleBtn").disabled = !available;
+  $("#detailWaveBars").disabled = !available;
+  $("#playerStatusText").textContent = available ? "点击播放" : "暂无可试听音频";
+  const download = $("#stageDownloadBtn"); download.disabled = !stem;
+  if (stem) { download.dataset.downloadArtifact = stem.artifact_id; download.dataset.downloadName = stem.name; download.textContent = "下载当前音轨 ↓"; }
+  else { delete download.dataset.downloadArtifact; delete download.dataset.downloadName; }
+}
+async function loadAudioPreviewForStem(stem) {
+  if (audioLoad) return audioLoad;
+  const audio = $("#audioElement"), epoch = audioRevision;
+  if (!audio || !stem) return false;
+  const work = (async () => {
+    try {
+      $("#playerStatusText").textContent = "正在加载音频…";
+      let dataUrl = previewCache.get(stem.artifact_id);
+      if (!dataUrl) {
+        const res = await apiRequest("GET", `/api/artifacts/${encodeURIComponent(stem.artifact_id)}/preview`);
+        if (!res?.data_url) throw Error("未返回可播放音频");
+        dataUrl = res.data_url; previewCache.set(stem.artifact_id, dataUrl);
       }
+      if (epoch !== audioRevision || !isPageActive) return false;
+      audio.src = dataUrl; $("#playerStatusText").textContent = "点击播放";
+      return true;
+    } catch (err) {
+      if (epoch === audioRevision) $("#playerStatusText").textContent = `加载失败：${err.message || err}，点击重试`;
+      return false;
     }
-    if (dataUrl) {
-      audio.src = dataUrl;
-      statusEl.textContent = "🔊 100%";
-    }
-  } catch (err) {
-    statusEl.textContent = "试听流就绪";
-  }
+  })();
+  audioLoad = work;
+  try { return await work; } finally { if (audioLoad === work) audioLoad = null; }
+}
+let playbackPending = false;
+async function toggleAudioPlayback() {
+  if (playbackPending) return;
+  const audio = $("#audioElement"), stem = currentDetailTask?.stems?.[activeStemIdx], epoch = audioRevision;
+  if (!audio || !stem || $("#playToggleBtn").disabled) return;
+  playbackPending = true;
+  try {
+    if (!audio.src && !await loadAudioPreviewForStem(stem)) return;
+    if (epoch !== audioRevision || !isPageActive) return;
+    if (audio.paused) { await audio.play(); if (epoch === audioRevision) { $("#playToggleBtn").textContent = "⏸ 暂停"; $("#playerStatusText").textContent = "正在播放"; } }
+    else { audio.pause(); $("#playToggleBtn").textContent = "▶ 播放"; $("#playerStatusText").textContent = "已暂停"; }
+  } catch (err) { if (epoch === audioRevision) $("#playerStatusText").textContent = `播放失败：${err.message || err}，点击重试`; }
+  finally { playbackPending = false; }
 }
 
 async function hydrateRefAudioPreviews() {
@@ -906,8 +930,7 @@ async function renderTaskDetail(taskId) {
       if (res?.task) t = normalizeTask(res.task);
     } catch {}
   }
-  if (!t && tasks.length > 0) t = tasks[0];
-  if (!t) return;
+  if (!t) { showBanner("任务不存在或无权访问", true); return; }
 
   currentDetailTask = t;
   activeStemIdx = 0;
@@ -944,7 +967,8 @@ async function renderTaskDetail(taskId) {
   if ($("#detailHeadCapacityPill")) {
     $("#detailHeadCapacityPill").textContent = `单任务参考容量：${formatBytes(totalBytes)} / ≤ 50 MB`;
   }
-  $("#detailMetaLine").textContent = `状态：${t.status} · 规格：${t.sampleRate} / ${t.audioLength} / ${t.channels} / ${t.format} · 创建时间：${t.createdAt} · 所属项目：${t.project}`;
+  $("#detailStatus").textContent = t.status;
+  $("#detailMetaLine").textContent = `规格：${t.sampleRate} / ${t.audioLength} / ${t.channels} / ${t.format} · 创建时间：${t.createdAt} · 所属项目：${t.project}`;
 
   const headDlBtn = $("#headDownloadPrimaryBtn");
   if (headDlBtn) {
@@ -966,7 +990,7 @@ async function renderTaskDetail(taskId) {
     $("#activeStemTitle").textContent = activeStem.name;
   }
   if ($("#activeStemSpec")) {
-    $("#activeStemSpec").textContent = `${t.sampleRate} · ${t.audioLength} · ${t.channels} · 0.7 Gamma 48柱包络波形`;
+    $("#activeStemSpec").textContent = `${t.sampleRate} · ${t.audioLength} · ${t.channels}`;
   }
 
   $("#detailStemTabs").innerHTML = t.stems
@@ -1005,7 +1029,7 @@ async function renderTaskDetail(taskId) {
   if ($("#detailOutputMeta")) {
     $("#detailOutputMeta").innerHTML = `
       <span>${esc(t.modelLabel)}</span>
-      <span>${esc(t.typeCode)} (${esc(t.typeLabel)})</span>
+      <span>${esc(t.typeCode)}</span>
       <span>${esc(t.sampleRate)}</span>
       <span>${esc(t.channels)}</span>
       <span>${esc(t.audioLength)}</span>
@@ -1147,9 +1171,8 @@ async function renderTaskDetail(taskId) {
 
   const totalFmt = formatTimeSec(t.durationSeconds || 0);
   $("#playerTime").textContent = `00:00 / ${totalFmt}`;
-  if (t.stems[0]) {
-    loadAudioPreviewForStem(t.stems[0]);
-  }
+  selectAudioStem(t.stems[0]);
+  $("#exportLrcBtn").disabled = !t.lrc.length && !t.rawLrc;
   notifyResize();
 }
 
@@ -1190,10 +1213,7 @@ function syncRoute(nextRoute, notifyHost = true) {
     return;
   }
 
-  const audio = $("#audioElement");
-  if (audio && !audio.paused) {
-    audio.pause();
-  }
+  resetAudioPreview();
   $("#titleEditBar").hidden = true;
 
   if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = false;
@@ -1345,7 +1365,7 @@ document.addEventListener("click", async (e) => {
       if ($("#activeStemTitle")) {
         $("#activeStemTitle").textContent = stem.name;
       }
-      loadAudioPreviewForStem(stem);
+      selectAudioStem(stem);
     }
     return;
   }
@@ -1366,20 +1386,8 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
-  if (e.target.closest("#playToggleBtn")) {
-    const audio = $("#audioElement");
-    if (!audio) return;
-    if (!audio.src && currentDetailTask?.stems?.[activeStemIdx]) {
-      await loadAudioPreviewForStem(currentDetailTask.stems[activeStemIdx]);
-    }
-    if (audio.paused) {
-      audio.play().then(() => {
-        $("#playToggleBtn").textContent = "⏸ 暂停";
-      }).catch(() => {});
-    } else {
-      audio.pause();
-      $("#playToggleBtn").textContent = "▶ 播放";
-    }
+  if (e.target.closest("#playToggleBtn, #detailWaveBars")) {
+    await toggleAudioPlayback();
     return;
   }
 
@@ -1395,6 +1403,7 @@ document.addEventListener("click", async (e) => {
 
   if (e.target.closest("#titleCancelBtn")) {
     $("#titleEditBar").hidden = true;
+    $("#editTitleBtn").focus();
     notifyResize();
     return;
   }
@@ -1488,7 +1497,7 @@ function handleWaveSeek(e) {
 }
 
 $("#waveTrack")?.addEventListener("click", handleWaveSeek);
-$("#detailWaveBars")?.addEventListener("click", handleWaveSeek);
+window.addEventListener("pagehide", resetAudioPreview);
 
 
 $("#searchInput")?.addEventListener("input", renderTaskSection);

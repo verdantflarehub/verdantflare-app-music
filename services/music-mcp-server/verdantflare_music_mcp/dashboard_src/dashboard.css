@@ -1447,3 +1447,8 @@ tr:last-child td {
   color: var(--muted);
   background: var(--panel);
 }
+
+#detailHeadActions .title-edit-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0}
+.title-edit-icon svg{flex:none;width:18px;height:18px}
+#detailWaveBars{width:100%;cursor:pointer;color:inherit;font:inherit}
+#detailWaveBars:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
