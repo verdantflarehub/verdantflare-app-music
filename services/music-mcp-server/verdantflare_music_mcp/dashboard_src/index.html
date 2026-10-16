@@ -10,7 +10,14 @@
 
 <body>
   <main class="main embed-active" id="appRoot">
-    <!-- 第一栏（模式 A）：顶栏一体化 App Header（一级视图任务/模型/MCP共用，不渲染面包屑） -->
+    <!-- 顶层面包屑：应用根级起算 Music MCP / 任务 | 模型 | MCP -->
+    <nav class="breadcrumb" id="appBreadcrumb" aria-label="面包屑">
+      <a href="#tasks" data-nav-back="tasks">Music MCP</a>
+      <span aria-hidden="true">/</span>
+      <span class="crumb-current" id="crumbCurrentView">任务</span>
+    </nav>
+
+    <!-- 第一栏（模式 A）：顶栏一体化 App Header（一级视图任务/模型/MCP共用） -->
     <header class="app-topbar" id="unifiedAppHeader">
       <div class="app-identity">
         <div class="app-badge-icon">
@@ -21,18 +28,18 @@
           </svg>
         </div>
         <span class="app-identity-title">Music MCP</span>
-        <span class="app-identity-tag" id="appVersionBadge">v0.9.7</span>
+        <span class="app-identity-tag tabular-nums" id="appVersionBadge">v0.9.8</span>
       </div>
 
       <nav class="app-tabs" aria-label="Music MCP 一级导航">
-        <a class="app-tab active" data-tab="tasks" href="#tasks">任务 <span class="tab-count" id="tabTaskCount">0</span></a>
-        <a class="app-tab" data-tab="models" href="#models">模型 <span class="tab-count" id="tabModelCount">8</span></a>
-        <a class="app-tab" data-tab="mcp" href="#mcp">MCP <span class="tab-count" id="tabMcpCount">14</span></a>
+        <a class="app-tab active" data-tab="tasks" href="#tasks">任务 <span class="tab-count tabular-nums" id="tabTaskCount">0</span></a>
+        <a class="app-tab" data-tab="models" href="#models">模型 <span class="tab-count tabular-nums" id="tabModelCount">8</span></a>
+        <a class="app-tab" data-tab="mcp" href="#mcp">MCP <span class="tab-count tabular-nums" id="tabMcpCount">14</span></a>
       </nav>
     </header>
 
-    <!-- 第一栏（模式 B）：面包屑顶栏（仅在进入任务详情子页时显示，收起上方 App Header） -->
-    <nav class="breadcrumb-topbar" id="detailBreadcrumbBar" aria-label="面包屑" hidden>
+    <!-- 第一栏（模式 B）：二级详情面包屑顶栏（进入任务详情子页时显示） -->
+    <nav class="breadcrumb-topbar" id="detailBreadcrumbBar" aria-label="详情面包屑" hidden>
       <a href="#tasks" data-nav-back="tasks">Music MCP</a>
       <span aria-hidden="true">/</span>
       <a href="#tasks" data-nav-back="tasks">任务</a>
@@ -66,8 +73,9 @@
       <div class="toolbar" style="margin-bottom:14px;">
         <input class="search-input" id="searchInput" type="search" placeholder="搜索任务名称、项目、声线或提示词...">
         <select class="select-box" id="channelFilter" aria-label="渠道筛选">
-          <option value="all">全部渠道（本地）</option>
+          <option value="all">全部渠道</option>
           <option value="本地">本地</option>
+          <option value="Higgsfield">Higgsfield</option>
         </select>
         <select class="select-box" id="projectFilter" aria-label="项目筛选">
           <option value="all">全部项目</option>
@@ -85,43 +93,74 @@
     </section>
 
     <!-- ==================================================================
-         2. 任务详情子页 (#task=id)
+         2. 任务详情子页 (#task=id，无损 4 项输入要素还原)
          ================================================================== -->
     <section id="sectionTaskDetail" hidden>
       <div class="detail-panel" style="margin-bottom:18px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-          <strong>多轨音频试听播放器</strong>
-          <span style="font-size:12px;color:var(--muted);" id="detailMetaLine"></span>
+          <strong>多轨音频试听播放器（0.7 Gamma 48-Bar 包络）</strong>
+          <span class="tabular-nums" style="font-size:12px;color:var(--muted);" id="detailMetaLine"></span>
         </div>
         <div class="stem-tabs" id="detailStemTabs"></div>
+        <div class="player-wave-stage" id="detailWaveBars"></div>
         <div class="player-bar">
           <button class="btn-primary" type="button" id="playToggleBtn">▶ 播放</button>
-          <span style="font-size:12px;font-variant-numeric:tabular-nums;" id="playerTime">00:00 / 00:00</span>
+          <span class="tabular-nums" style="font-size:12px;" id="playerTime">00:00 / 00:00</span>
           <div class="wave-track" id="waveTrack" title="点击跳转播放位置">
             <div class="wave-progress" id="waveProgress" style="width:0%;"></div>
           </div>
-          <span style="font-size:12px;color:var(--muted);" id="playerStatusText">🔊 100%</span>
-          <span style="font-size:12px;color:var(--muted);">1.0x</span>
+          <span class="tabular-nums" style="font-size:12px;color:var(--muted);" id="playerStatusText">🔊 100%</span>
+          <span class="tabular-nums" style="font-size:12px;color:var(--muted);">1.0x</span>
         </div>
         <audio id="audioElement" preload="none" hidden></audio>
       </div>
 
       <div class="detail-grid">
-        <div class="detail-panel">
-          <strong>LRC 歌词与时间轴同步检视</strong>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">点击任意时间戳行可直接跳转播放位置</p>
-          <div class="lrc-list" id="detailLrcList"></div>
+        <div style="display:flex;flex-direction:column;gap:18px;">
+          <!-- 要素 1：提示词与歌词 -->
+          <div class="detail-panel">
+            <div class="factor-head">
+              <strong>1. 提示词与歌词（Prompt &amp; Structured Lyrics / LRC）</strong>
+              <span class="factor-badge" id="detailLyricsBadge">编曲提示词 + 时间轴歌词</span>
+            </div>
+            <div class="prompt-box" id="detailPrompt"></div>
+            <p style="margin:10px 0 4px;font-size:12px;color:var(--muted);">点击任意时间戳行可直接跳转播放位置：</p>
+            <div class="lrc-list" id="detailLrcList"></div>
+          </div>
+
+          <!-- 要素 4：参考图像与封面（4 列网格 + object-fit: contain 不裁切） -->
+          <div class="detail-panel">
+            <div class="factor-head">
+              <strong>4. 参考图像与封面（Reference Images / Cover Art）</strong>
+              <span class="factor-badge tabular-nums" id="detailRefImageCount">0 张</span>
+            </div>
+            <div id="detailRefImagesBody"></div>
+          </div>
         </div>
 
         <div style="display:flex;flex-direction:column;gap:18px;">
+          <!-- 要素 2：参考音频与干声轨 -->
           <div class="detail-panel">
-            <strong>任务输入与创作参数</strong>
-            <p style="margin:10px 0 12px;font-size:13px;line-height:1.6;" id="detailPrompt"></p>
-            <div style="display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:12.5px;" id="detailParams"></div>
+            <div class="factor-head">
+              <strong>2. 参考音频与干声轨（Reference Audio / Input Stems）</strong>
+              <span class="factor-badge tabular-nums" id="detailRefAudioCount">0 轨</span>
+            </div>
+            <div id="detailRefAudioBody"></div>
           </div>
 
+          <!-- 要素 3：声线模型与角色配置 -->
           <div class="detail-panel">
-            <strong>输出产物清单与溯源信息</strong>
+            <div class="factor-head">
+              <strong>3. 声线模型与角色配置（Voice Model &amp; RVC Config）</strong>
+              <span class="factor-badge tabular-nums" id="detailVoiceConfigBadge">声线参数</span>
+            </div>
+            <div id="detailVoiceConfigBody"></div>
+          </div>
+
+          <!-- 任务技术规格与输出产物清单 -->
+          <div class="detail-panel">
+            <strong>技术规格与输出产物清单</strong>
+            <div class="tabular-nums" style="display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:12.5px;margin:10px 0 14px;" id="detailParams"></div>
             <div style="display:grid;gap:8px;margin-top:10px;" id="detailArtifacts"></div>
           </div>
         </div>
@@ -129,7 +168,7 @@
     </section>
 
     <!-- ==================================================================
-         3. 模型目录页 (#models，对标 Video 按渠道分组 + 卡片内原位展开)
+         3. 模型目录页 (#models，按渠道分组 · 零冗余模型服务卡片)
          ================================================================== -->
     <section id="sectionModels" hidden>
       <div class="model-filter-bar">
@@ -166,7 +205,7 @@
         </div>
       </div>
 
-      <div class="model-summary-line" id="modelSummaryLine">8 个模型 · 2 个渠道</div>
+      <div class="model-summary-line tabular-nums" id="modelSummaryLine">8 个模型 · 2 个渠道</div>
       <div id="modelChannelSections"></div>
     </section>
 
@@ -177,7 +216,7 @@
       <div class="mcp-status-card" style="margin-bottom:18px;">
         <div class="mcp-kv">
           <label>服务标识与状态</label>
-          <strong id="mcpServiceIdentity">verdantflare-music (v0.9.7) · <span style="color:var(--accent);">在线 Ready</span></strong>
+          <strong id="mcpServiceIdentity">verdantflare-music (v0.9.8) · <span style="color:var(--accent);">在线 Ready</span></strong>
         </div>
         <div class="mcp-kv">
           <label>外部唯一访问入口</label>

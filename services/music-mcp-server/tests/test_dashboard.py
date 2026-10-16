@@ -46,7 +46,29 @@ class DashboardAndTasksTest(unittest.TestCase):
             self.assertEqual(mime, "text/html; charset=utf-8")
             html_str = html_bytes.decode("utf-8")
             self.assertIn("Music MCP", html_str)
+            self.assertIn("v0.9.8", html_str)
             self.assertNotIn("5090dev", html_str)
+            self.assertNotIn("应用中心 /", html_str)
+            self.assertIn("1. 提示词与歌词", html_str)
+            self.assertIn("2. 参考音频与干声轨", html_str)
+            self.assertIn("3. 声线模型与角色配置", html_str)
+            self.assertIn("4. 参考图像与封面", html_str)
+
+            css_key = next(k for k in assets.files if k.endswith(".css"))
+            css_bytes, _ = assets.asset(css_key)
+            css_str = css_bytes.decode("utf-8")
+            self.assertIn("--vf-shadow-card", css_str)
+            self.assertIn("tabular-nums", css_str)
+            self.assertIn("object-fit: contain", css_str)
+            self.assertIn(".ref-empty-box", css_str)
+            self.assertIn(".wave-bars", css_str)
+
+            mjs_key = next(k for k in assets.files if k.endswith(".mjs"))
+            mjs_bytes, _ = assets.asset(mjs_key)
+            mjs_str = mjs_bytes.decode("utf-8")
+            self.assertIn("Math.pow(rawNorm, 0.7)", mjs_str)
+            self.assertNotIn("查看模型与渠道详情", mjs_str)
+            self.assertNotIn("model-expand-trigger", mjs_str)
 
     def test_task_store_and_dashboard_routes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -3,6 +3,39 @@ const { appSDK: sdk, dashboardHost: bridge } = window.$wujie?.props || {};
 const localChannelSvg =
   '<svg class="channel-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>';
 
+const sunoChannelSvg =
+  '<svg class="channel-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 15c1.5 1 4.5 1 6 0m-6-6c1.5-1 4.5-1 6 0"/></svg>';
+
+const higgsfieldLogo = '<span class="higgs-badge" aria-hidden="true">H</span>';
+
+function channelLogoFor(channel) {
+  if (channel === "本地") return localChannelSvg;
+  if (channel === "Suno") return sunoChannelSvg;
+  return higgsfieldLogo;
+}
+
+// 0.7 Gamma 48-bar waveform generator
+function buildWaveBars(seed, count = 48, height = 64) {
+  let s = 0;
+  const str = String(seed ?? "music");
+  for (let i = 0; i < str.length; i++) {
+    s = (s * 31 + str.charCodeAt(i)) % 9973;
+  }
+  const bars = [];
+  for (let i = 0; i < count; i++) {
+    const rawNorm =
+      0.18 +
+      0.82 *
+        Math.abs(
+          Math.sin((s + 1) * 0.43 + i * 0.37) * Math.cos((s + 3) * 0.19 + i * 0.13)
+        );
+    const gammaVal = Math.pow(rawNorm, 0.7);
+    const px = Math.max(6, Math.round(gammaVal * height));
+    bars.push(`<span class="wave-bar" style="height:${px}px;"></span>`);
+  }
+  return bars.join("");
+}
+
 const DEFAULT_MODELS = [
   {
     id: "local-minimax-music3",
@@ -11,7 +44,11 @@ const DEFAULT_MODELS = [
     title: "MiniMax Music 3",
     modelId: "minimax-music-3-omni-local",
     desc: "全曲文生音乐候选生成与指定时间窗局部重绘，适合主歌/副歌完整结构编曲与器乐铺底。",
-    specLine: "本地 · 32kHz WAV · 15–240 秒",
+    specLine: "32kHz WAV · 15–240 秒",
+    caps: ["T2M · 文生音乐", "R2M · 局部重绘"],
+    refQuota: "无需参考音频 (T2M) / 1 轨源音频 (R2M)",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["32kHz", "15–240S", "WAV"],
     tools: ["music.generate", "music.redraw"],
     teamScope: "文生音乐 (T2M)、局部时间窗重绘 (R2M) · 32kHz WAV · 15–240 秒",
     vendorScope: "sglang-omni (Qwen-7B + DiT/DAV + VAE) · 支持中英文歌词结构控制",
@@ -24,7 +61,11 @@ const DEFAULT_MODELS = [
     title: "ACE-Step 1.5",
     modelId: "acestep-v15-base-local",
     desc: "双人对唱分轨编排、统一伴奏主干生成与角色分段干声合成，支持按需唤醒推理。",
-    specLine: "本地 · 48kHz WAV · 歌词结构驱动",
+    specLine: "48kHz WAV · 歌词结构驱动",
+    caps: ["DUET · 双人对唱", "R2M · 段落重绘"],
+    refQuota: "伴奏主干 1 轨 + 角色人声干声 2 轨",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["48kHz", "30–240S", "WAV"],
     tools: ["duet.plan", "duet.instrumental", "duet.vocal", "duet.preview"],
     teamScope: "双人分唱蓝图规划、统一伴奏主干与分角色干声生成 (DUET) · 48kHz WAV",
     vendorScope: "ACE-Step v1.5 Base · 多段落歌词驱动编曲与局部重绘",
@@ -37,7 +78,11 @@ const DEFAULT_MODELS = [
     title: "UVR5 RoFormer",
     modelId: "mel-band-roformer-big-beta4",
     desc: "高保真伴奏与人声干声分离、去混响与和声剥离，为 RVC 翻唱与母带重混提供洁净干声。",
-    specLine: "本地 · 44.1kHz WAV · 伴奏/人声/去混响",
+    specLine: "44.1kHz WAV · 伴奏/人声/去混响",
+    caps: ["STEM · 分轨分离", "Dereverb · 去混响"],
+    refQuota: "输入整曲音频 1 轨（分离伴奏 + 干声）",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["44.1kHz", "≤ 600S", "WAV"],
     tools: ["stems.separate"],
     teamScope: "伴奏/人声分离、混响剥离与和声分离 (STEM) · 44.1kHz WAV",
     vendorScope: "MelBand RoFormer Big Beta4 + Dereverb + Karaoke 级联管线",
@@ -50,13 +95,17 @@ const DEFAULT_MODELS = [
     title: "RVC v2",
     modelId: "rvc-v2-hubert-rmvpe-40k",
     desc: "角色声线转换与人声音色权重训练，内置已安装角色声线模型库，默认用于主唱干声替换。",
-    specLine: "本地 · 40kHz / rmvpe · 已安装 2 个人声音色",
+    specLine: "40kHz / rmvpe · 已安装 2 个人声音色",
+    caps: ["RVC · 声线转换", "RMVPE · 基频提取"],
+    refQuota: "输入洁净人声干声 1–2 轨",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["40kHz", "≤ 600S", "WAV"],
     tools: ["voice.convert", "voice.prepare", "voice.train"],
     teamScope: "角色声线转换、训练集切片清洗与 RVC 权重训练 (RVC) · 40kHz WAV",
     vendorScope: "Retrieval-based Voice Conversion v2 (HuBERT + RMVPE 基频提取)",
     voices: [
-      { id: "mengsk-comfort-v2-20260901", spec: "40kHz · rmvpe · 已就绪（生产主推）" },
-      { id: "mengsk-demo-v1", spec: "40kHz · rmvpe · 已就绪（历史基线）" },
+      { id: "mengsk-comfort-v2-20260901", spec: "40kHz · rmvpe · 生产主推" },
+      { id: "mengsk-demo-v1", spec: "40kHz · rmvpe · 历史基线" },
     ],
   },
   {
@@ -66,7 +115,11 @@ const DEFAULT_MODELS = [
     title: "Whisper Small",
     modelId: "faster-whisper-small-align",
     desc: "已知歌词文本与人声干声强制时间轴对齐，输出行级 LRC 与字级 JSON 时间戳供 MV 消费。",
-    specLine: "本地 · LRC 行级 + JSON 字级时间戳",
+    specLine: "LRC 行级 + JSON 字级时间戳",
+    caps: ["LRC · 强制对齐", "DTW · 字级时间戳"],
+    refQuota: "人声干声 1 轨 + 净版歌词文本 1 份",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["16kHz+", "≤ 600S", "LRC+JSON"],
     tools: ["lyrics.align"],
     teamScope: "人声干声与净版歌词强制时间轴对齐 (LRC) · 导出 .lrc 与 .json",
     vendorScope: "faster-whisper (Whisper Small) + DTW 强制对齐管线",
@@ -79,7 +132,11 @@ const DEFAULT_MODELS = [
     title: "Pedalboard Mixer",
     modelId: "pedalboard-ffmpeg-loudnorm",
     desc: "多轨空间混音、人声均衡混响与母带动态压限，统一按 -14 LUFS 响度标准交付成片。",
-    specLine: "本地 · 48kHz WAV · -14 LUFS 母带交付",
+    specLine: "48kHz WAV · -14 LUFS 母带交付",
+    caps: ["MIX · 多轨混音", "-14 LUFS · 母带归一"],
+    refQuota: "伴奏轨 1 轨 + 角色人声干声 1–2 轨",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["48kHz", "≤ 600S", "WAV"],
     tools: ["mix.master"],
     teamScope: "人声+伴奏多轨混音、均衡/混响/压限与 -14 LUFS 响度归一化 (MIX)",
     vendorScope: "Spotify Pedalboard + ffmpeg EBU R128 Loudnorm",
@@ -92,7 +149,11 @@ const DEFAULT_MODELS = [
     title: "MiniMax Music 3",
     modelId: "higgsfield-minimax-music-3",
     desc: "云端高并发整曲文生音乐与风格化配乐候选生成，适合多候选快速比选与商业曲风探索。",
-    specLine: "Higgsfield · 44.1kHz WAV · 30–240 秒",
+    specLine: "44.1kHz WAV · 30–240 秒",
+    caps: ["T2M · 云端文生音乐"],
+    refQuota: "支持参考曲风音频 0–1 轨",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["44.1kHz", "30–240S", "WAV"],
     tools: ["music.generate"],
     teamScope: "云端文生音乐候选生成 (T2M) · 44.1kHz WAV · 30–240 秒",
     vendorScope: "Higgsfield Audio Generation API · 支持商业曲风标签与完整歌词段落输入",
@@ -105,13 +166,34 @@ const DEFAULT_MODELS = [
     title: "Suno v4.5 Studio",
     modelId: "higgsfield-suno-v4-5",
     desc: "流行、摇滚与电子编曲整曲生成，适合快速生成高完成度旋律小样与副歌段落参考。",
-    specLine: "Higgsfield · 44.1kHz WAV · 30–240 秒",
+    specLine: "44.1kHz WAV · 30–240 秒",
+    caps: ["T2M · 整曲生成", "R2M · 段落续写/重绘"],
+    refQuota: "支持参考音频 0–1 轨 + 封面参考图 0–1 张",
+    maxSize: "≤ 50MB",
+    outputSpecs: ["44.1kHz", "30–240S", "WAV"],
     tools: ["music.generate", "music.redraw"],
     teamScope: "整曲小样生成与段落重绘 (T2M / R2M) · 44.1kHz WAV · 30–240 秒",
     vendorScope: "Higgsfield Suno v4.5 Provider · 支持器乐纯享与人声整曲模式",
     voices: [],
   },
 ];
+
+const DEFAULT_MODEL_BY_ID = new Map(DEFAULT_MODELS.map((m) => [m.id, m]));
+
+function enrichModel(raw) {
+  const fallback = DEFAULT_MODEL_BY_ID.get(raw.id) || {};
+  return {
+    ...fallback,
+    ...raw,
+    caps: Array.isArray(raw.caps) && raw.caps.length ? raw.caps : fallback.caps || [raw.biz || "MUSIC"],
+    refQuota: raw.refQuota || fallback.refQuota || "按工具契约传入参考音轨",
+    maxSize: raw.maxSize || fallback.maxSize || "≤ 50MB",
+    outputSpecs:
+      Array.isArray(raw.outputSpecs) && raw.outputSpecs.length === 3
+        ? raw.outputSpecs
+        : fallback.outputSpecs || ["48kHz", "≤ 240S", "WAV"],
+  };
+}
 
 const MCP_GROUPS = [
   {
@@ -161,11 +243,10 @@ const MCP_GROUPS = [
 const STATUS_LIST = ["全部", "排队中", "处理中", "已完成", "失败", "已取消"];
 
 let tasks = [];
-let models = [...DEFAULT_MODELS];
+let models = DEFAULT_MODELS.map(enrichModel);
 let mcpStatus = null;
 let currentStatus = "全部";
 let currentViewMode = "gallery";
-let expandedModelId = "local-rvc-v2";
 let currentDetailTask = null;
 let activeStemIdx = 0;
 let savedTasksScrollY = 0;
@@ -234,12 +315,39 @@ function normalizeTask(raw) {
     spec: `${a.media_type?.includes("audio") ? (raw.spec_label || "WAV") : (a.filename?.split(".").pop()?.toUpperCase() || "FILE")} · ${formatBytes(a.size)}`,
   }));
   const parsedLrc = parseLrcLines(raw.lyrics_lrc);
-  const lrc =
-    parsedLrc.length > 0
-      ? parsedLrc
-      : [{ timeStr: "00:00.00", seconds: 0, text: `（${raw.workflow_label || raw.operation || "音频产物"}已持久化就绪，可切换上方分轨直接试听或下载）` }];
-
   const durSec = Number(raw.duration_seconds) || 0;
+  const specRaw = String(raw.spec_label || "48kHz");
+  const sampleRate = specRaw.includes("kHz") ? specRaw.split(" ")[0] : "48kHz";
+  const channels = raw.channels || "Stereo";
+  const format =
+    raw.format ||
+    (raw.operation === "lyrics.align" ? "LRC+JSON" : "WAV");
+  const rawAudioLen =
+    raw.audio_length && raw.audio_length !== "—"
+      ? String(raw.audio_length).replace(/s$/i, "S")
+      : durSec > 0
+        ? `${Math.round(durSec)}S`
+        : `${artifacts.length}轨`;
+
+  const voiceModelId = raw.voice_model_id || "";
+  const refAudios = Array.isArray(raw.ref_audios)
+    ? raw.ref_audios
+    : stems
+        .filter((s) => /stem|vocal|inst|source|input|dry/i.test(s.name))
+        .map((s) => ({ name: s.name, spec: s.spec }));
+  const voiceConfigs = Array.isArray(raw.voice_configs)
+    ? raw.voice_configs
+    : voiceModelId
+      ? [
+          {
+            id: voiceModelId,
+            role: "主唱目标音色 (RVC v2)",
+            params: "40kHz · rmvpe · index_rate=0.66 · protect=0.33",
+          },
+        ]
+      : [];
+  const refImages = Array.isArray(raw.ref_images) ? raw.ref_images : [];
+
   return {
     id,
     title: raw.title || id,
@@ -252,15 +360,21 @@ function normalizeTask(raw) {
     typeCode: raw.type_code || "T2M",
     typeLabel: raw.type_label || raw.workflow_label || raw.operation || "音乐任务",
     specLabel: raw.spec_label || "WAV",
-    audioLength: raw.audio_length && raw.audio_length !== "—" ? raw.audio_length : durSec > 0 ? `${Math.round(durSec)}s` : `${artifacts.length} 轨`,
+    sampleRate,
+    channels,
+    audioLength: rawAudioLen,
+    format,
     project: raw.project_id || "default",
     operation: raw.operation || "music.generate",
-    voiceModelId: raw.voice_model_id || "",
+    voiceModelId,
     prompt: raw.prompt || `[${raw.operation}] Project ${raw.project_id}`,
     stems,
-    lrc,
+    lrc: parsedLrc,
     rawLrc: raw.lyrics_lrc || "",
     durationSeconds: durSec,
+    refAudios,
+    voiceConfigs,
+    refImages,
   };
 }
 
@@ -423,7 +537,7 @@ function renderTaskSection() {
 
   $("#statusPills").innerHTML = STATUS_LIST.map((st) => {
     const count = st === "全部" ? base.length : base.filter((x) => x.status === st).length;
-    return `<button type="button" class="${currentStatus === st ? "active" : ""}" data-status="${esc(st)}">${esc(st)} (${count})</button>`;
+    return `<button type="button" class="tabular-nums ${currentStatus === st ? "active" : ""}" data-status="${esc(st)}">${esc(st)} (${count})</button>`;
   }).join("");
 
   if (filtered.length === 0) {
@@ -432,22 +546,20 @@ function renderTaskSection() {
   } else {
     $("#taskGallery").innerHTML = filtered
       .map(
-        (t) => `
+        (t, idx) => `
       <article class="card">
         <div class="thumb">
           <div class="task-identity generation-identity" title="${esc(t.modelLabel)} × ${esc(t.channelLabel)}">
             <strong class="identity-model">${esc(t.modelLabel)}</strong>
             <span class="identity-separator" aria-hidden="true">×</span>
-            <strong class="identity-channel">${localChannelSvg}${esc(t.channelLabel)}</strong>
+            <strong class="identity-channel">${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}</strong>
           </div>
           <span class="status-badge ${esc(t.statusClass)}">${esc(t.status)}</span>
           <div class="thumb-wave">
-            <svg viewBox="0 0 88 42" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-              <path d="M8 24v-6m8 12V12m8 18V8m8 26V6m8 22V14m8 16V10m8 20v-8m8 12V14m8 10v-6"/>
-            </svg>
-            <span>点击卡片右下角检视多轨与 LRC</span>
+            <div class="wave-bars">${buildWaveBars(t.id || idx + 1, 48, 64)}</div>
+            <span>0.7 Gamma 48-Bar · 检视多轨与 4 项输入要素</span>
           </div>
-          <div class="image-times">
+          <div class="image-times tabular-nums">
             <span>${esc(t.createdAt)}</span>
             <span>${esc(t.durationText)}</span>
           </div>
@@ -456,12 +568,14 @@ function renderTaskSection() {
           <h2 class="task-title" title="${esc(t.title)}">${esc(t.title)}</h2>
           <p class="prompt">${esc(t.prompt)}</p>
           <div class="card-foot">
-            <div class="tags">
+            <div class="tags tabular-nums">
               <span class="type-code" title="${esc(t.typeLabel)}">${esc(t.typeCode)}</span>
-              <span>${esc(t.specLabel)}</span>
+              <span>${esc(t.sampleRate)}</span>
+              <span>${esc(t.channels)}</span>
               <span>${esc(t.audioLength)}</span>
+              <span>${esc(t.format)}</span>
             </div>
-            <a class="detail-link" href="#task=${encodeURIComponent(t.id)}" data-open-task="${esc(t.id)}">查看详情 →</a>
+            <a class="detail-link" href="#task=${encodeURIComponent(t.id)}" data-open-task="${esc(t.id)}">查看</a>
           </div>
         </div>
       </article>
@@ -476,7 +590,7 @@ function renderTaskSection() {
             <th>任务名称</th>
             <th>模型 × 渠道</th>
             <th>所属项目</th>
-            <th>类型与规格</th>
+            <th>模式与规格</th>
             <th>创建时间</th>
             <th>状态</th>
             <th></th>
@@ -490,10 +604,10 @@ function renderTaskSection() {
               <td><strong>${esc(t.title)}</strong></td>
               <td>${esc(t.modelLabel)} × ${esc(t.channelLabel)}</td>
               <td><code>${esc(t.project)}</code></td>
-              <td><div class="tags"><span class="type-code" title="${esc(t.typeLabel)}">${esc(t.typeCode)}</span><span>${esc(t.specLabel)}</span><span>${esc(t.audioLength)}</span></div></td>
-              <td>${esc(t.createdAt)}</td>
+              <td><div class="tags tabular-nums"><span class="type-code" title="${esc(t.typeLabel)}">${esc(t.typeCode)}</span><span>${esc(t.sampleRate)}</span><span>${esc(t.channels)}</span><span>${esc(t.audioLength)}</span><span>${esc(t.format)}</span></div></td>
+              <td class="tabular-nums">${esc(t.createdAt)}</td>
               <td>${esc(t.status)}</td>
-              <td><a class="detail-link" href="#task=${encodeURIComponent(t.id)}" data-open-task="${esc(t.id)}">查看详情 →</a></td>
+              <td><a class="detail-link" href="#task=${encodeURIComponent(t.id)}" data-open-task="${esc(t.id)}">查看</a></td>
             </tr>
           `
             )
@@ -508,23 +622,20 @@ function renderTaskSection() {
   notifyResize();
 }
 
+// 零冗余模型服务卡片：按渠道分组后卡片内绝不重复出现渠道名称，也绝不放置“查看”按钮
 function renderModelCardHtml(m) {
-  const isExp = expandedModelId === m.id;
-  const channelBadgeIcon =
-    m.channel === "本地" ? localChannelSvg : '<span class="higgs-badge" aria-hidden="true">H</span>';
-
   const voicesHtml =
     m.voices && m.voices.length
       ? `
-    <div class="model-inline-kv">
-      <span>已安装可用人声音色（voice_model_id）</span>
+    <div style="margin-top:4px;">
+      <span>已安装可用人声音色（voice_model_id）：</span>
       <div class="voice-chip-list">
         ${m.voices
           .map(
             (v) => `
           <div class="voice-chip-item">
             <code>${esc(v.id)}</code>
-            <span style="color:var(--muted);font-size:11.5px;">${esc(v.spec)}</span>
+            <span style="color:var(--muted);">${esc(v.spec)}</span>
           </div>
         `
           )
@@ -534,44 +645,27 @@ function renderModelCardHtml(m) {
   `
       : "";
 
-  const inlineDetailHtml = isExp
-    ? `
-    <div class="model-inline-detail">
-      <div class="model-inline-kv">
-        <span>渠道 · 模型标识</span>
-        <strong>${esc(m.channel)} · <code>${esc(m.modelId)}</code></strong>
-      </div>
-      <div class="model-inline-kv">
-        <span>关联 MCP 工具</span>
-        <strong>${(m.tools || []).map((t) => `<code>${esc(t)}</code>`).join(" / ")}</strong>
-      </div>
-      <div class="model-inline-kv">
-        <span>团队适配范围</span>
-        <strong>${esc(m.teamScope)}</strong>
-      </div>
-      <div class="model-inline-kv">
-        <span>供应商声明范围</span>
-        <strong>${esc(m.vendorScope)}</strong>
-      </div>
-      ${voicesHtml}
-    </div>
-  `
-    : "";
-
   return `
-    <article class="model-card ${isExp ? "expanded" : ""}">
-      <span class="model-biz-label">${esc(m.biz)}</span>
+    <article class="model-card">
+      <div class="model-card-top">
+        <span class="model-biz-label">${esc(m.biz)}</span>
+        <code class="model-id-code">${esc(m.modelId)}</code>
+      </div>
       <h3 class="model-card-title">${esc(m.title)}</h3>
       <p class="model-desc">${esc(m.desc)}</p>
-      <div class="model-channel-pill-row">
-        <span class="model-channel-pill">${channelBadgeIcon}${esc(m.channel)}</span>
+      <div class="model-cap-row">
+        ${(m.caps || []).map((c) => `<span class="cap-pill">${esc(c)}</span>`).join("")}
       </div>
-      <div class="model-spec-line">${esc(m.specLine)}</div>
-      <button type="button" class="model-expand-trigger" data-toggle-model="${esc(m.id)}">
-        <span>${isExp ? "▾" : "▸"}</span>
-        <span>查看模型与渠道详情</span>
-      </button>
-      ${inlineDetailHtml}
+      <div class="model-quota-strip">
+        <div>参考音频/分轨配额：<strong>${esc(m.refQuota)}</strong></div>
+        <div>单次任务最大容量：<strong>${esc(m.maxSize)}</strong> · 关联工具：${(m.tools || []).map((t) => `<code>${esc(t)}</code>`).join(" / ")}</div>
+        ${voicesHtml}
+      </div>
+      <div class="model-foot">
+        <div class="tags tabular-nums">
+          ${(m.outputSpecs || []).map((s) => `<span>${esc(s)}</span>`).join("")}
+        </div>
+      </div>
     </article>
   `;
 }
@@ -608,8 +702,8 @@ function renderModelsSection() {
       return `
         <section class="channel-group-section">
           <div class="channel-group-head">
-            <h2 class="channel-group-title">${esc(channelName)}</h2>
-            <span class="channel-group-count">${groupModels.length} 个模型</span>
+            <h2 class="channel-group-title">${channelLogoFor(channelName)}${esc(channelName)}</h2>
+            <span class="channel-group-count tabular-nums">${groupModels.length} 个模型</span>
           </div>
           <div class="model-grid">
             ${groupModels.map(renderModelCardHtml).join("")}
@@ -623,7 +717,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.7";
+    const ver = mcpStatus.app_version || "0.9.8";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
@@ -752,10 +846,10 @@ async function renderTaskDetail(taskId) {
   $("#crumbTaskTitle").textContent = t.title;
   $("#viewTitle").textContent = t.title;
   $("#viewSubtitle").innerHTML = `
-    <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
-      <strong>${esc(t.modelLabel)}</strong> × ${localChannelSvg}<strong>${esc(t.channelLabel)}</strong>
-      · <span class="tags"><span class="type-code">${esc(t.typeCode)}</span></span> ${esc(t.typeLabel)}
-      · ${esc(t.specLabel)} · ${esc(t.audioLength)} · ${esc(t.durationText)}
+    <span class="tabular-nums" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <strong>${esc(t.modelLabel)}</strong> × ${channelLogoFor(t.channelLabel)}<strong>${esc(t.channelLabel)}</strong>
+      · <span class="tags"><span class="type-code">${esc(t.typeCode)}</span><span>${esc(t.sampleRate)}</span><span>${esc(t.channels)}</span><span>${esc(t.audioLength)}</span><span>${esc(t.format)}</span></span>
+      · ${esc(t.durationText)}
     </span>
   `;
 
@@ -785,23 +879,108 @@ async function renderTaskDetail(taskId) {
     )
     .join("");
 
-  $("#detailLrcList").innerHTML = t.lrc
-    .map(
-      (row, idx) => `
-    <div class="lrc-row ${idx === 0 ? "active" : ""}" data-lrc-sec="${row.seconds}" data-lrc-time="${esc(row.timeStr)}">
-      <code>[${esc(row.timeStr)}]</code>
-      <span>${esc(row.text)}</span>
-    </div>
-  `
-    )
-    .join("");
+  if ($("#detailWaveBars")) {
+    $("#detailWaveBars").innerHTML = buildWaveBars(t.id || t.title, 48, 52);
+  }
 
+  // 要素 1：提示词与歌词
   $("#detailPrompt").textContent = t.prompt;
+  if ($("#detailLyricsBadge")) {
+    $("#detailLyricsBadge").textContent = t.lrc.length ? `${t.lrc.length} 行时间轴歌词` : "纯音频 / 0 行歌词";
+  }
+  if (t.lrc.length > 0) {
+    $("#detailLrcList").innerHTML = t.lrc
+      .map(
+        (row, idx) => `
+      <div class="lrc-row ${idx === 0 ? "active" : ""}" data-lrc-sec="${row.seconds}" data-lrc-time="${esc(row.timeStr)}">
+        <code>[${esc(row.timeStr)}]</code>
+        <span>${esc(row.text)}</span>
+      </div>
+    `
+      )
+      .join("");
+  } else {
+    $("#detailLrcList").innerHTML = `<div class="ref-empty-box">当前任务未包含结构化 LRC 歌词文本（0 行）</div>`;
+  }
+
+  // 要素 2：参考音频与干声轨
+  if ($("#detailRefAudioCount")) {
+    $("#detailRefAudioCount").textContent = `${t.refAudios.length} 轨`;
+  }
+  if ($("#detailRefAudioBody")) {
+    if (t.refAudios.length > 0) {
+      $("#detailRefAudioBody").innerHTML = `<div style="display:grid;gap:8px;">${t.refAudios
+        .map(
+          (a) => `
+        <div class="ref-audio-item">
+          <strong><code>${esc(a.name)}</code></strong>
+          <span class="tabular-nums" style="color:var(--muted);font-size:12px;">${esc(a.spec)}</span>
+        </div>
+      `
+        )
+        .join("")}</div>`;
+    } else {
+      $("#detailRefAudioBody").innerHTML = `<div class="ref-empty-box">当前任务未使用参考音频或干声输入（0 轨）</div>`;
+    }
+  }
+
+  // 要素 3：声线模型与角色配置
+  if ($("#detailVoiceConfigBadge")) {
+    $("#detailVoiceConfigBadge").textContent = t.voiceConfigs.length ? `已挂载 ${t.voiceConfigs.length} 项` : "未挂载声线";
+  }
+  if ($("#detailVoiceConfigBody")) {
+    if (t.voiceConfigs.length > 0) {
+      $("#detailVoiceConfigBody").innerHTML = `<div style="display:grid;gap:8px;">${t.voiceConfigs
+        .map(
+          (vc) => `
+        <div class="ref-audio-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
+          <div style="display:flex;justify-content:space-between;width:100%;gap:8px;">
+            <strong><code>${esc(vc.id)}</code></strong>
+            <span style="color:var(--accent);font-size:11.5px;font-weight:600;">${esc(vc.role)}</span>
+          </div>
+          <span class="tabular-nums" style="color:var(--muted);font-size:11.5px;">${esc(vc.params)}</span>
+        </div>
+      `
+        )
+        .join("")}</div>`;
+    } else {
+      $("#detailVoiceConfigBody").innerHTML = `<div class="ref-empty-box">当前任务未挂载 RVC 声线转换模型（0 项）</div>`;
+    }
+  }
+
+  // 要素 4：参考图像与封面（4 列网格 + object-fit: contain 不裁切）
+  if ($("#detailRefImageCount")) {
+    $("#detailRefImageCount").textContent = `${t.refImages.length} 张`;
+  }
+  if ($("#detailRefImagesBody")) {
+    if (t.refImages.length > 0) {
+      $("#detailRefImagesBody").innerHTML = `<div class="ref-image-grid">${t.refImages
+        .map(
+          (img) => `
+        <div class="ref-image-item">
+          <div class="ref-image-thumb">
+            ${
+              img.src
+                ? `<img src="${esc(img.src)}" alt="${esc(img.name)}" />`
+                : `<svg viewBox="0 0 120 90" fill="none"><rect x="14" y="10" width="92" height="70" rx="6" stroke="currentColor" stroke-width="2"/><circle cx="42" cy="34" r="8" stroke="currentColor" stroke-width="2"/><path d="M22 68l22-18 18 14 14-10 22 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
+            }
+          </div>
+          <div class="ref-image-meta" title="${esc(img.name)}"><strong>${esc(img.name)}</strong></div>
+          <div class="ref-image-meta tabular-nums">${esc(img.aspect || "1:1")} · ${esc(img.resolution || "Cover")}</div>
+        </div>
+      `
+        )
+        .join("")}</div>`;
+    } else {
+      $("#detailRefImagesBody").innerHTML = `<div class="ref-empty-box">当前任务未提供参考图像或封面资产（0 张）</div>`;
+    }
+  }
+
   $("#detailParams").innerHTML = `
     <span style="color:var(--muted);">模型名称</span><strong>${esc(t.modelLabel)}</strong>
     <span style="color:var(--muted);">执行渠道</span><strong>${esc(t.channelLabel)}</strong>
     <span style="color:var(--muted);">任务类型</span><strong>${esc(t.typeCode)} · ${esc(t.typeLabel)}</strong>
-    <span style="color:var(--muted);">采样与时长</span><strong>${esc(t.specLabel)} / ${esc(t.audioLength)}</strong>
+    <span style="color:var(--muted);">输出规格</span><strong>${esc(t.sampleRate)} · ${esc(t.channels)} · ${esc(t.audioLength)} · ${esc(t.format)}</strong>
     ${t.voiceModelId ? `<span style="color:var(--muted);">人声音色 ID</span><strong><code>${esc(t.voiceModelId)}</code></strong>` : ""}
   `;
 
@@ -809,7 +988,7 @@ async function renderTaskDetail(taskId) {
     .map(
       (s, idx) => `
     <div class="mcp-tool-item">
-      <span>${idx + 1}. <strong>${esc(s.name)}</strong> <small style="color:var(--muted);">(${esc(s.spec)})</small></span>
+      <span>${idx + 1}. <strong>${esc(s.name)}</strong> <small class="tabular-nums" style="color:var(--muted);">(${esc(s.spec)})</small></span>
       <button type="button" class="btn-outline" data-download-artifact="${esc(s.artifact_id)}" data-download-name="${esc(s.name)}">下载 ↓</button>
     </div>
   `
@@ -849,6 +1028,7 @@ function syncRoute(nextRoute, notifyHost = true) {
 
   if (rawHash.startsWith("task=")) {
     const taskId = decodeURIComponent(rawHash.slice(5));
+    if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = true;
     $("#unifiedAppHeader").hidden = true;
     $("#detailBreadcrumbBar").hidden = false;
     $("#sectionTasks").hidden = true;
@@ -865,6 +1045,7 @@ function syncRoute(nextRoute, notifyHost = true) {
   }
   $("#titleEditBar").hidden = true;
 
+  if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = false;
   $("#unifiedAppHeader").hidden = false;
   $("#detailBreadcrumbBar").hidden = true;
   $("#sectionTaskDetail").hidden = true;
@@ -874,6 +1055,10 @@ function syncRoute(nextRoute, notifyHost = true) {
     el.classList.toggle("active", el.dataset.tab === tab);
   });
 
+  if ($("#crumbCurrentView")) {
+    $("#crumbCurrentView").textContent = tab === "models" ? "模型" : tab === "mcp" ? "MCP" : "任务";
+  }
+
   $("#sectionTasks").hidden = tab !== "tasks";
   $("#sectionModels").hidden = tab !== "models";
   $("#sectionMcp").hidden = tab !== "mcp";
@@ -882,7 +1067,7 @@ function syncRoute(nextRoute, notifyHost = true) {
     $("#viewTitle").textContent = "音乐任务";
     $("#viewSubtitle").textContent = "查看、筛选与试听已执行的整曲生成、分轨分离、声线转换与母带混音任务";
     $("#viewActions").innerHTML = `
-      <span>已同步 · ${tasks.length} 项持久化任务</span>
+      <span class="tabular-nums">已同步 · ${tasks.length} 项持久化任务</span>
       <button type="button" class="btn-outline" id="refreshBtn">刷新</button>
     `;
     renderTaskSection();
@@ -893,9 +1078,9 @@ function syncRoute(nextRoute, notifyHost = true) {
     }
   } else if (tab === "models") {
     $("#viewTitle").textContent = "模型目录";
-    $("#viewSubtitle").textContent = "按接入渠道（本地 / Higgsfield）分组查看已注册音乐模型、规格边界与可用人声音色";
+    $("#viewSubtitle").textContent = "按接入渠道（本地 / Higgsfield）分组查看已注册音乐模型、能力配额与可用人声音色（零冗余直展）";
     $("#viewActions").innerHTML = `
-      <span>${models.length} 个模型 · 2 个渠道</span>
+      <span class="tabular-nums">${models.length} 个模型 · 2 个渠道</span>
       <button type="button" class="btn-outline" id="refreshModelsBtn">刷新目录</button>
     `;
     renderModelsSection();
@@ -903,7 +1088,7 @@ function syncRoute(nextRoute, notifyHost = true) {
     $("#viewTitle").textContent = "MCP 服务与能力";
     $("#viewSubtitle").textContent = "查看 Studio 统一 MCP 接入状态、网络隔离边界与各业务分组工具 Schema 定义";
     $("#viewActions").innerHTML = `
-      <span>6 大业务分组 · 共 14 项注册工具</span>
+      <span class="tabular-nums">6 大业务分组 · 共 14 项注册工具</span>
     `;
     renderMcpSection();
   }
@@ -926,7 +1111,7 @@ async function refreshDashboardData(silent = false) {
       updateProjectFilterOptions();
     }
     if (Array.isArray(catalogData?.models) && catalogData.models.length > 0) {
-      models = catalogData.models;
+      models = catalogData.models.map(enrichModel);
     }
     if (mcpData) {
       mcpStatus = mcpData;
@@ -977,14 +1162,6 @@ document.addEventListener("click", async (e) => {
     currentViewMode = vmBtn.dataset.viewMode;
     document.querySelectorAll("[data-view-mode]").forEach((b) => b.classList.toggle("active", b === vmBtn));
     renderTaskSection();
-    return;
-  }
-
-  const modBtn = e.target.closest("[data-toggle-model]");
-  if (modBtn) {
-    const id = modBtn.dataset.toggleModel;
-    expandedModelId = expandedModelId === id ? null : id;
-    renderModelsSection();
     return;
   }
 
