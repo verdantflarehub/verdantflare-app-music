@@ -728,7 +728,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.11";
+    const ver = mcpStatus.app_version || "0.9.12";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
@@ -1482,6 +1482,11 @@ if (audioEl) {
   });
   audioEl.addEventListener("ended", () => {
     $("#playToggleBtn").textContent = "▶ 播放";
+    $("#playerStatusText").textContent = "播放结束，点击重播";
+  });
+  audioEl.addEventListener("error", () => {
+    $("#playToggleBtn").textContent = "▶ 播放";
+    $("#playerStatusText").textContent = "音频无法播放，请重试或下载原音频";
   });
 }
 
