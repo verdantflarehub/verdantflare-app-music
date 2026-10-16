@@ -6,7 +6,8 @@ const localChannelSvg =
 const sunoChannelSvg =
   '<svg class="channel-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 15c1.5 1 4.5 1 6 0m-6-6c1.5-1 4.5-1 6 0"/></svg>';
 
-const higgsfieldLogo = '<span class="higgs-badge" aria-hidden="true">H</span>';
+const higgsfieldLogo =
+  '<svg width="14" height="14" class="channel-logo" aria-hidden="true" focusable="false" viewBox="0 0 1355 1355" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="1355" height="1355" rx="363" fill="#D1FE17"/><path d="M1088.73 670.726L1087.95 662.156C1080.52 579.906 1026.99 425.16 878.52 425.16C768.341 425.16 685.111 533.914 611.658 629.796C553.046 706.582 502.264 772.452 446.385 772.452C431.533 770.898 412.391 763.49 400.676 746.73C390.125 731.522 387.392 712.035 392.858 688.649C401.448 651.619 450.686 617.315 502.644 580.677C531.161 561.19 560.472 540.529 580.79 520.651C639.402 464.134 669.094 423.205 669.094 357.336C669.094 291.467 632.76 258.716 602.283 244.682C541.331 216.625 451.862 232.994 394.818 282.114C386.227 289.913 377.625 297.31 369.807 304.328C312.371 355.392 273.696 390.086 185 363.571V470.369C302.605 522.216 401.46 423.205 438.97 377.605C467.878 347.592 498.355 330.049 521.024 330.049H522.2C532.359 330.441 540.95 334.34 547.211 341.357C557.37 353.056 561.279 366.699 559.319 381.896C555.018 413.864 521.808 451.273 460.856 492.203C389.352 540.149 269.799 620.444 260.413 721.399C253.379 793.905 290.889 866.4 349.501 894.458C486.247 959.165 569.477 847.684 657.77 729.969C725.365 639.149 789.443 553.01 878.531 553.01C958.625 553.01 988.318 619.271 988.318 660.982V669.173L980.5 670.726C786.318 705.029 680.429 886.67 680.429 970.473C680.429 1054.28 751.541 1126 839.061 1126C941.433 1126 1068.02 1038.69 1088.34 793.123L1089.12 784.162H1170V670.737H1088.73V670.726ZM982.841 796.62C967.216 943.566 891.804 1012.17 846.095 1012.17C825.385 1012.17 796.477 995.021 796.477 963.064C796.477 927.208 850.003 818.454 970.341 786.106L984.409 782.597L982.841 796.632V796.62Z" fill="black"/></svg>';
 
 function channelLogoFor(channel) {
   if (channel === "本地") return localChannelSvg;
@@ -334,7 +335,13 @@ function normalizeTask(raw) {
     ? raw.ref_audios
     : stems
         .filter((s) => /stem|vocal|inst|source|input|dry/i.test(s.name))
-        .map((s) => ({ name: s.name, spec: s.spec }));
+        .slice(0, 4)
+        .map((s) => ({
+          name: s.name,
+          spec: s.spec,
+          artifact_id: s.artifact_id,
+          media_type: s.media_type,
+        }));
   const voiceConfigs = Array.isArray(raw.voice_configs)
     ? raw.voice_configs
     : voiceModelId
@@ -442,6 +449,9 @@ function applyTheme(themeValue) {
 }
 
 function initThemeAndBridge() {
+  if (window.$wujie || (window.parent && window.parent !== window)) {
+    document.documentElement.dataset.embedded = "true";
+  }
   try {
     const initial = sdk?.theme?.get?.();
     if (initial) {
@@ -717,7 +727,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.8";
+    const ver = mcpStatus.app_version || "0.9.9";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
@@ -756,6 +766,7 @@ async function loadAudioPreviewForStem(stem) {
   audio.pause();
   $("#playToggleBtn").textContent = "▶ 播放";
   $("#waveProgress").style.width = "0%";
+  document.querySelectorAll("#detailWaveBars .wave-bar").forEach((b) => b.classList.remove("played"));
 
   if (!stem.media_type?.startsWith("audio/") && !stem.name?.toLowerCase().endsWith(".wav") && !stem.name?.toLowerCase().endsWith(".mp3")) {
     audio.removeAttribute("src");
@@ -779,6 +790,27 @@ async function loadAudioPreviewForStem(stem) {
     }
   } catch (err) {
     statusEl.textContent = "试听流就绪";
+  }
+}
+
+async function hydrateRefAudioPreviews() {
+  const audioEls = Array.from(document.querySelectorAll("audio[data-ref-audio-id]"));
+  for (const el of audioEls) {
+    const artId = el.dataset.refAudioId;
+    if (!artId) continue;
+    try {
+      let dataUrl = previewCache.get(artId);
+      if (!dataUrl) {
+        const res = await apiRequest("GET", `/api/artifacts/${encodeURIComponent(artId)}/preview`);
+        if (res?.data_url) {
+          dataUrl = res.data_url;
+          previewCache.set(artId, dataUrl);
+        }
+      }
+      if (dataUrl) {
+        el.src = dataUrl;
+      }
+    } catch {}
   }
 }
 
@@ -829,6 +861,53 @@ function exportTaskLrc(task) {
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
+function triStepStrip(st) {
+  if (st === "处理中") {
+    return `<div class="tri-steps"><span class="tri-step done">1. 令牌直通</span><span class="tri-step active">2. 声学推理中</span><span class="tri-step">3. 母带归档</span></div>`;
+  }
+  if (st === "失败") {
+    return `<div class="tri-steps"><span class="tri-step done">1. 令牌直通</span><span class="tri-step fail">2. 对齐中断</span><span class="tri-step">3. 未归档</span></div>`;
+  }
+  return `<div class="tri-steps"><span class="tri-step done">1. 令牌直通</span><span class="tri-step done">2. 推理完成</span><span class="tri-step done">3. 已归档</span></div>`;
+}
+
+function renderPromptWithChips(t) {
+  let html = esc(t.prompt || "");
+  html = html.replace(/&lt;Audio\s*([1-4])&gt;/gi, (_, idxStr) => {
+    const idx = Math.max(0, Number(idxStr) - 1);
+    return `<button type="button" class="prompt-ref-chip" data-focus-ref="ref-aud-${idx}">&lt;Audio ${idx + 1}&gt;</button>`;
+  });
+  html = html.replace(/&lt;Voice\s*1&gt;/gi, () => {
+    return `<button type="button" class="prompt-ref-chip" data-focus-ref="ref-voice-0">&lt;Voice 1&gt;</button>`;
+  });
+  html = html.replace(/&lt;LRC\s*1&gt;/gi, () => {
+    return `<button type="button" class="prompt-ref-chip" data-focus-ref="ref-lrc-box">&lt;LRC 1&gt;</button>`;
+  });
+
+  const extraChips = [];
+  if (!/&lt;Audio\s*[1-4]&gt;/i.test(esc(t.prompt || "")) && t.refAudios.length > 0) {
+    t.refAudios.slice(0, 4).forEach((a, idx) => {
+      extraChips.push(
+        `<button type="button" class="prompt-ref-chip" data-focus-ref="ref-aud-${idx}" title="${esc(a.name)}">&lt;Audio ${idx + 1}&gt;</button>`
+      );
+    });
+  }
+  if (!/&lt;Voice\s*1&gt;/i.test(esc(t.prompt || "")) && t.voiceConfigs.length > 0) {
+    extraChips.push(
+      `<button type="button" class="prompt-ref-chip" data-focus-ref="ref-voice-0" title="${esc(t.voiceConfigs[0].id)}">&lt;Voice 1&gt;</button>`
+    );
+  }
+  if (!/&lt;LRC\s*1&gt;/i.test(esc(t.prompt || "")) && t.lrc.length > 0) {
+    extraChips.push(
+      `<button type="button" class="prompt-ref-chip" data-focus-ref="ref-lrc-box" title="定位结构化歌词时间轴">&lt;LRC 1&gt;</button>`
+    );
+  }
+  if (extraChips.length > 0) {
+    html += ` <span style="margin-left:4px;">${extraChips.join(" ")}</span>`;
+  }
+  return html;
+}
+
 async function renderTaskDetail(taskId) {
   let t = tasks.find((x) => x.id === taskId);
   if (!t) {
@@ -858,21 +937,52 @@ async function renderTaskDetail(taskId) {
     t.stems[0];
 
   $("#viewActions").innerHTML = `
-    <button type="button" class="btn-outline" id="editTitleBtn">编辑标题</button>
     <span class="model-channel-pill">${esc(t.status)}</span>
-    ${
-      primaryAudioStem
-        ? `<button type="button" class="btn-primary" data-download-artifact="${esc(primaryAudioStem.artifact_id)}" data-download-name="${esc(primaryAudioStem.name)}">下载主音频 ↓</button>`
-        : ""
-    }
-    <button type="button" class="btn-outline" id="exportLrcBtn">导出 LRC</button>
   `;
 
-  $("#detailMetaLine").textContent = `创建时间：${t.createdAt} · 所属项目：${t.project}`;
+  // .inspect-head
+  if ($("#detailShellTitle")) {
+    $("#detailShellTitle").textContent = t.title;
+  }
+  if ($("#detailHeadModelChannel")) {
+    $("#detailHeadModelChannel").innerHTML = `${esc(t.modelLabel)} × ${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}`;
+  }
+  if ($("#detailHeadModePill")) {
+    $("#detailHeadModePill").innerHTML = `<strong>${esc(t.typeCode)}</strong><small>${esc(t.typeLabel)}</small>`;
+  }
+  const totalBytes = t.stems.reduce((acc, s) => acc + (Number(s.size) || 0), 0);
+  if ($("#detailHeadCapacityPill")) {
+    $("#detailHeadCapacityPill").textContent = `单任务参考容量：${formatBytes(totalBytes)} / ≤ 50 MB`;
+  }
+  $("#detailMetaLine").textContent = `状态：${t.status} · 规格：${t.sampleRate} / ${t.audioLength} / ${t.channels} / ${t.format} · 创建时间：${t.createdAt} · 所属项目：${t.project}`;
+
+  const headDlBtn = $("#headDownloadPrimaryBtn");
+  if (headDlBtn) {
+    if (primaryAudioStem) {
+      headDlBtn.hidden = false;
+      headDlBtn.dataset.downloadArtifact = primaryAudioStem.artifact_id;
+      headDlBtn.dataset.downloadName = primaryAudioStem.name;
+    } else {
+      headDlBtn.hidden = true;
+    }
+  }
+
+  // Left .output-pane
+  if ($("#detailStemCountBadge")) {
+    $("#detailStemCountBadge").textContent = `${t.stems.length} 轨音轨就绪`;
+  }
+  const activeStem = t.stems[0] || primaryAudioStem || { name: "Final Master 母带", spec: `${t.sampleRate} · ${t.format}` };
+  if ($("#activeStemTitle")) {
+    $("#activeStemTitle").textContent = activeStem.name;
+  }
+  if ($("#activeStemSpec")) {
+    $("#activeStemSpec").textContent = `${t.sampleRate} · ${t.audioLength} · ${t.channels} · 0.7 Gamma 48柱包络波形`;
+  }
+
   $("#detailStemTabs").innerHTML = t.stems
     .map(
       (s, idx) => `
-    <button type="button" class="stem-tab ${idx === 0 ? "active" : ""}" data-stem-idx="${idx}">
+    <button type="button" class="stem-tab stem-pill-btn ${idx === 0 ? "active" : ""}" data-stem-idx="${idx}">
       ${idx === 0 ? "● " : ""}${esc(s.name)}
     </button>
   `
@@ -880,15 +990,53 @@ async function renderTaskDetail(taskId) {
     .join("");
 
   if ($("#detailWaveBars")) {
-    $("#detailWaveBars").innerHTML = buildWaveBars(t.id || t.title, 48, 52);
+    $("#detailWaveBars").innerHTML = buildWaveBars(t.id || t.title, 48, 66);
   }
 
-  // 要素 1：提示词与歌词
-  $("#detailPrompt").textContent = t.prompt;
+  if ($("#detailResultSummary")) {
+    $("#detailResultSummary").textContent =
+      t.status === "失败"
+        ? "本次任务在对齐阶段中断，保留原始输入快照"
+        : t.status === "处理中"
+          ? "引擎推理中，完成后自动归档至当前项目"
+          : `输出 ${String(t.stems.length).padStart(2, "0")} · 已登记项目 Artifact（支持切换母带与独立干声分轨）`;
+  }
+  const stageDlBtn = $("#stageDownloadBtn");
+  if (stageDlBtn) {
+    if (primaryAudioStem) {
+      stageDlBtn.disabled = false;
+      stageDlBtn.dataset.downloadArtifact = primaryAudioStem.artifact_id;
+      stageDlBtn.dataset.downloadName = primaryAudioStem.name;
+    } else {
+      stageDlBtn.disabled = true;
+      delete stageDlBtn.dataset.downloadArtifact;
+    }
+  }
+  if ($("#detailTriSteps")) {
+    $("#detailTriSteps").innerHTML = triStepStrip(t.status);
+  }
+  if ($("#detailOutputMeta")) {
+    $("#detailOutputMeta").innerHTML = `
+      <span class="identity-channel">${esc(t.modelLabel)} × ${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}</span>
+      <span>${esc(t.typeCode)} (${esc(t.typeLabel)})</span>
+      <span>${esc(t.sampleRate)}</span>
+      <span>${esc(t.channels)}</span>
+      <span>${esc(t.audioLength)}</span>
+      <span>${esc(t.format)}</span>
+    `;
+  }
+
+  // Right .input-pane — 4 Input Factors
+  // 1. 提示词与编曲指令（Prompt）
+  $("#detailPrompt").innerHTML = renderPromptWithChips(t);
+
+  // 2. 结构化歌词 / LRC 时间轴
   if ($("#detailLyricsBadge")) {
-    $("#detailLyricsBadge").textContent = t.lrc.length ? `${t.lrc.length} 行时间轴歌词` : "纯音频 / 0 行歌词";
+    $("#detailLyricsBadge").textContent = t.lrc.length > 0 ? `1 / 1 份（已对齐 ${t.lrc.length} 行）` : "0 / 1 份";
+    $("#detailLyricsBadge").classList.toggle("empty", t.lrc.length === 0);
   }
   if (t.lrc.length > 0) {
+    $("#detailLrcList").className = "lrc-list lrc-sheet";
     $("#detailLrcList").innerHTML = t.lrc
       .map(
         (row, idx) => `
@@ -900,88 +1048,103 @@ async function renderTaskDetail(taskId) {
       )
       .join("");
   } else {
-    $("#detailLrcList").innerHTML = `<div class="ref-empty-box">当前任务未包含结构化 LRC 歌词文本（0 行）</div>`;
+    $("#detailLrcList").className = "lrc-list";
+    $("#detailLrcList").innerHTML = `
+      <div class="ref-empty-box">
+        <span>未传入结构化歌词或 LRC 文本（0 / 1 份）</span>
+        <small>不同模型与工序支持不同：ACE-Step 1.5 / Whisper Small 支持结构化歌词与逐词对齐；纯器乐配乐、UVR5 分轨与纯 RVC 干声转换无需歌词</small>
+      </div>
+    `;
   }
 
-  // 要素 2：参考音频与干声轨
+  // 3. 参考音频 / 输入分轨干声
+  const maxAudios = 4;
   if ($("#detailRefAudioCount")) {
-    $("#detailRefAudioCount").textContent = `${t.refAudios.length} 轨`;
+    $("#detailRefAudioCount").textContent = `${t.refAudios.length} / ${maxAudios} 轨 · 当前模型上限 ${maxAudios} 轨`;
+    $("#detailRefAudioCount").classList.toggle("empty", t.refAudios.length === 0);
   }
   if ($("#detailRefAudioBody")) {
     if (t.refAudios.length > 0) {
-      $("#detailRefAudioBody").innerHTML = `<div style="display:grid;gap:8px;">${t.refAudios
+      $("#detailRefAudioBody").innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">${t.refAudios
+        .slice(0, 4)
         .map(
-          (a) => `
-        <div class="ref-audio-item">
-          <strong><code>${esc(a.name)}</code></strong>
-          <span class="tabular-nums" style="color:var(--muted);font-size:12px;">${esc(a.spec)}</span>
+          (a, i) => `
+        <div class="ref-audio-card ref-media-card" id="ref-aud-${i}" tabindex="-1">
+          <div class="ref-audio-head">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+              <span class="physics-pill">Audio ${i + 1}</span>
+              <div style="min-width:0;">
+                <strong style="font-size:12.5px;display:block;"><code>${esc(a.name)}</code></strong>
+                <small class="tabular-nums" style="font-size:11px;color:var(--muted);">${esc(a.spec)}</small>
+              </div>
+            </div>
+            <div class="ref-audio-wave" aria-hidden="true">
+              <i style="height:8px"></i><i style="height:14px"></i><i style="height:18px"></i><i style="height:10px"></i><i style="height:16px"></i><i style="height:20px"></i><i style="height:12px"></i><i style="height:15px"></i><i style="height:9px"></i><i style="height:17px"></i><i style="height:11px"></i><i style="height:7px"></i>
+            </div>
+          </div>
+          ${
+            a.artifact_id
+              ? `<audio controls preload="metadata" data-ref-audio-id="${esc(a.artifact_id)}" aria-label="Audio ${i + 1} ${esc(a.name)}"></audio>`
+              : ""
+          }
         </div>
       `
         )
         .join("")}</div>`;
+      hydrateRefAudioPreviews();
     } else {
-      $("#detailRefAudioBody").innerHTML = `<div class="ref-empty-box">当前任务未使用参考音频或干声输入（0 轨）</div>`;
+      $("#detailRefAudioBody").innerHTML = `
+        <div class="ref-empty-box">
+          <span>未传入参考音频或分轨干声（0 / 4 轨）</span>
+          <small>不同模型支持上限不同：FFmpeg 母带混音最高支持 4 轨分轨输入，ACE-Step 1.5 支持 2 段参考旋律，RVC / UVR5 支持 1 轨源音频，纯文生 T2M 为 0 轨</small>
+        </div>
+      `;
     }
   }
 
-  // 要素 3：声线模型与角色配置
+  // 4. 角色声线模型（RVC Voice Model）
+  const maxVoices = 1;
   if ($("#detailVoiceConfigBadge")) {
-    $("#detailVoiceConfigBadge").textContent = t.voiceConfigs.length ? `已挂载 ${t.voiceConfigs.length} 项` : "未挂载声线";
+    $("#detailVoiceConfigBadge").textContent = `${t.voiceConfigs.length} / ${maxVoices} 个 · 当前模型上限 ${maxVoices} 个`;
+    $("#detailVoiceConfigBadge").classList.toggle("empty", t.voiceConfigs.length === 0);
   }
   if ($("#detailVoiceConfigBody")) {
     if (t.voiceConfigs.length > 0) {
-      $("#detailVoiceConfigBody").innerHTML = `<div style="display:grid;gap:8px;">${t.voiceConfigs
+      $("#detailVoiceConfigBody").innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;">${t.voiceConfigs
         .map(
-          (vc) => `
-        <div class="ref-audio-item" style="flex-direction:column;align-items:flex-start;gap:4px;">
-          <div style="display:flex;justify-content:space-between;width:100%;gap:8px;">
-            <strong><code>${esc(vc.id)}</code></strong>
-            <span style="color:var(--accent);font-size:11.5px;font-weight:600;">${esc(vc.role)}</span>
+          (vc, i) => `
+        <div class="ref-audio-card ref-media-card" id="ref-voice-${i}" tabindex="-1">
+          <div class="ref-audio-head">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+              <span class="physics-pill">Voice ${i + 1}</span>
+              <div style="min-width:0;">
+                <strong style="font-size:13px;display:block;">🎙️ <code>${esc(vc.id)}</code> · ${esc(vc.role)}</strong>
+                <small class="tabular-nums" style="font-size:11px;color:var(--muted);">${esc(vc.params)}</small>
+              </div>
+            </div>
+            <span class="cap-pill"><strong>RVC v2</strong><small>已挂载</small></span>
           </div>
-          <span class="tabular-nums" style="color:var(--muted);font-size:11.5px;">${esc(vc.params)}</span>
         </div>
       `
         )
         .join("")}</div>`;
     } else {
-      $("#detailVoiceConfigBody").innerHTML = `<div class="ref-empty-box">当前任务未挂载 RVC 声线转换模型（0 项）</div>`;
-    }
-  }
-
-  // 要素 4：参考图像与封面（4 列网格 + object-fit: contain 不裁切）
-  if ($("#detailRefImageCount")) {
-    $("#detailRefImageCount").textContent = `${t.refImages.length} 张`;
-  }
-  if ($("#detailRefImagesBody")) {
-    if (t.refImages.length > 0) {
-      $("#detailRefImagesBody").innerHTML = `<div class="ref-image-grid">${t.refImages
-        .map(
-          (img) => `
-        <div class="ref-image-item">
-          <div class="ref-image-thumb">
-            ${
-              img.src
-                ? `<img src="${esc(img.src)}" alt="${esc(img.name)}" />`
-                : `<svg viewBox="0 0 120 90" fill="none"><rect x="14" y="10" width="92" height="70" rx="6" stroke="currentColor" stroke-width="2"/><circle cx="42" cy="34" r="8" stroke="currentColor" stroke-width="2"/><path d="M22 68l22-18 18 14 14-10 22 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
-            }
-          </div>
-          <div class="ref-image-meta" title="${esc(img.name)}"><strong>${esc(img.name)}</strong></div>
-          <div class="ref-image-meta tabular-nums">${esc(img.aspect || "1:1")} · ${esc(img.resolution || "Cover")}</div>
+      $("#detailVoiceConfigBody").innerHTML = `
+        <div class="ref-empty-box">
+          <span>未挂载 RVC 角色声线模型（0 / 1 个）</span>
+          <small>不同模型支持上限不同：本地 RVC v2 支持挂载预置 voice_model_id（如 mengsk-comfort-v2-20260901 / mengsk-demo-v1），原生编曲或分轨无需挂载</small>
         </div>
-      `
-        )
-        .join("")}</div>`;
-    } else {
-      $("#detailRefImagesBody").innerHTML = `<div class="ref-empty-box">当前任务未提供参考图像或封面资产（0 张）</div>`;
+      `;
     }
   }
 
+  // Bottom .inspect-tech
   $("#detailParams").innerHTML = `
-    <span style="color:var(--muted);">模型名称</span><strong>${esc(t.modelLabel)}</strong>
-    <span style="color:var(--muted);">执行渠道</span><strong>${esc(t.channelLabel)}</strong>
-    <span style="color:var(--muted);">任务类型</span><strong>${esc(t.typeCode)} · ${esc(t.typeLabel)}</strong>
-    <span style="color:var(--muted);">输出规格</span><strong>${esc(t.sampleRate)} · ${esc(t.channels)} · ${esc(t.audioLength)} · ${esc(t.format)}</strong>
-    ${t.voiceModelId ? `<span style="color:var(--muted);">人声音色 ID</span><strong><code>${esc(t.voiceModelId)}</code></strong>` : ""}
+    <span>任务 ID</span><span><code>${esc(t.id)}</code></span>
+    <span>模型 × 渠道</span><span class="identity-channel">${esc(t.modelLabel)} × ${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}</span>
+    <span>声学输出规格</span><span>${esc(t.typeCode)} (${esc(t.typeLabel)}) · 采样率 ${esc(t.sampleRate)} · 声道 ${esc(t.channels)} · 时长 ${esc(t.audioLength)} · 格式 ${esc(t.format)}</span>
+    <span>四要素输入快照</span><span>1. 提示词 1/1（唯一） · 2. 歌词与LRC ${t.lrc.length ? "1/1 份" : "0/1 份"} · 3. 参考音频与分轨 ${t.refAudios.length}/4 轨（全局最大 4 轨） · 4. RVC 声线模型 ${t.voiceConfigs.length}/1 个</span>
+    <span>创建时间与项目</span><span>${esc(t.createdAt)} · 所属项目 <code>${esc(t.project)}</code>${t.voiceModelId ? ` · 声线 <code>${esc(t.voiceModelId)}</code>` : ""}</span>
   `;
 
   $("#detailArtifacts").innerHTML = t.stems
@@ -1031,6 +1194,7 @@ function syncRoute(nextRoute, notifyHost = true) {
     if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = true;
     $("#unifiedAppHeader").hidden = true;
     $("#detailBreadcrumbBar").hidden = false;
+    if ($("#viewHeading")) $("#viewHeading").hidden = true;
     $("#sectionTasks").hidden = true;
     $("#sectionModels").hidden = true;
     $("#sectionMcp").hidden = true;
@@ -1048,6 +1212,7 @@ function syncRoute(nextRoute, notifyHost = true) {
   if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = false;
   $("#unifiedAppHeader").hidden = false;
   $("#detailBreadcrumbBar").hidden = true;
+  if ($("#viewHeading")) $("#viewHeading").hidden = false;
   $("#sectionTaskDetail").hidden = true;
 
   const tab = ["tasks", "models", "mcp"].includes(rawHash) ? rawHash : "tasks";
@@ -1150,6 +1315,19 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
+  const focusRefBtn = e.target.closest("[data-focus-ref]");
+  if (focusRefBtn) {
+    const targetId = focusRefBtn.dataset.focusRef;
+    const targetEl = document.getElementById(targetId);
+    if (targetEl) {
+      document.querySelectorAll(".reference-focus").forEach((el) => el.classList.remove("reference-focus"));
+      targetEl.classList.add("reference-focus");
+      targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => targetEl.classList.remove("reference-focus"), 1800);
+    }
+    return;
+  }
+
   const stBtn = e.target.closest("[data-status]");
   if (stBtn) {
     currentStatus = stBtn.dataset.status;
@@ -1176,7 +1354,12 @@ document.addEventListener("click", async (e) => {
       b.textContent = (active ? "● " : "") + cleanText;
     });
     const stem = currentDetailTask.stems[idx];
-    if (stem) loadAudioPreviewForStem(stem);
+    if (stem) {
+      if ($("#activeStemTitle")) {
+        $("#activeStemTitle").textContent = stem.name;
+      }
+      loadAudioPreviewForStem(stem);
+    }
     return;
   }
 
@@ -1246,6 +1429,9 @@ document.addEventListener("click", async (e) => {
         if (idx >= 0) tasks[idx] = updated;
         $("#viewTitle").textContent = updated.title;
         $("#crumbTaskTitle").textContent = updated.title;
+        if ($("#detailShellTitle")) {
+          $("#detailShellTitle").textContent = updated.title;
+        }
         $("#titleEditBar").hidden = true;
         showBanner("");
       }
@@ -1282,7 +1468,11 @@ if (audioEl) {
     const dur = audioEl.duration || currentDetailTask?.durationSeconds || 0;
     $("#playerTime").textContent = `${formatTimeSec(cur)} / ${formatTimeSec(dur)}`;
     if (dur > 0) {
-      $("#waveProgress").style.width = `${Math.min(100, (cur / dur) * 100).toFixed(1)}%`;
+      const ratio = Math.min(1, cur / dur);
+      $("#waveProgress").style.width = `${(ratio * 100).toFixed(1)}%`;
+      const bars = Array.from(document.querySelectorAll("#detailWaveBars .wave-bar"));
+      const playedCount = Math.round(ratio * bars.length);
+      bars.forEach((b, i) => b.classList.toggle("played", i < playedCount));
     }
     const rows = Array.from(document.querySelectorAll(".lrc-row"));
     let activeRow = null;
@@ -1299,7 +1489,7 @@ if (audioEl) {
   });
 }
 
-$("#waveTrack")?.addEventListener("click", (e) => {
+function handleWaveSeek(e) {
   const audio = $("#audioElement");
   if (!audio || !audio.src) return;
   const rect = e.currentTarget.getBoundingClientRect();
@@ -1308,7 +1498,11 @@ $("#waveTrack")?.addEventListener("click", (e) => {
   if (dur > 0) {
     audio.currentTime = ratio * dur;
   }
-});
+}
+
+$("#waveTrack")?.addEventListener("click", handleWaveSeek);
+$("#detailWaveBars")?.addEventListener("click", handleWaveSeek);
+
 
 $("#searchInput")?.addEventListener("input", renderTaskSection);
 $("#channelFilter")?.addEventListener("change", renderTaskSection);

@@ -54,7 +54,7 @@ class EtcdRegistry:
             "MCP_HEALTH_ENDPOINT",
             f"http://{domain}-mcp-server.verdantflare-{domain}.svc.cluster.local:8000/health",
         )
-        self.version = version or os.environ.get("SERVICE_VERSION", "0.9.8")
+        self.version = version or os.environ.get("SERVICE_VERSION", "0.9.9")
 
         self._lease_id: str | None = None
         self._last_heartbeat_at: str | None = None
