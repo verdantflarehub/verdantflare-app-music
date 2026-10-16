@@ -277,11 +277,6 @@ svg.icon {
   padding: 4px 6px;
 }
 
-html[data-embedded="true"] #appBreadcrumb,
-html[data-embedded="true"] #detailBreadcrumbBar {
-  display: none !important;
-}
-
 /* Status Banner & Inline Title Edit */
 .status-banner {
   padding: 10px 14px;
@@ -910,42 +905,6 @@ tr:last-child td {
   font-size: 12px;
   color: var(--muted);
   flex-wrap: wrap;
-}
-
-.tri-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  font-size: 10.5px;
-}
-
-.tri-step {
-  padding: 4px 6px;
-  border-radius: 4px;
-  background: var(--subtle);
-  border: 0.5px solid var(--line);
-  color: var(--muted);
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tri-step.done {
-  color: var(--ink);
-  border-color: var(--line-strong);
-}
-
-.tri-step.active {
-  color: var(--accent);
-  background: var(--selected);
-  border-color: rgba(8, 126, 96, 0.35);
-  font-weight: 600;
-}
-
-.tri-step.fail {
-  color: var(--danger);
-  background: var(--danger-soft);
 }
 
 .output-meta {

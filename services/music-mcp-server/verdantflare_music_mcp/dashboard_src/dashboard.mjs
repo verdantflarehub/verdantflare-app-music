@@ -727,7 +727,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.9";
+    const ver = mcpStatus.app_version || "0.9.10";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
@@ -859,16 +859,6 @@ function exportTaskLrc(task) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 3000);
-}
-
-function triStepStrip(st) {
-  if (st === "处理中") {
-    return `<div class="tri-steps"><span class="tri-step done">1. 令牌直通</span><span class="tri-step active">2. 声学推理中</span><span class="tri-step">3. 母带归档</span></div>`;
-  }
-  if (st === "失败") {
-    return `<div class="tri-steps"><span class="tri-step done">1. 令牌直通</span><span class="tri-step fail">2. 对齐中断</span><span class="tri-step">3. 未归档</span></div>`;
-  }
-  return `<div class="tri-steps"><span class="tri-step done">1. 令牌直通</span><span class="tri-step done">2. 推理完成</span><span class="tri-step done">3. 已归档</span></div>`;
 }
 
 function renderPromptWithChips(t) {
@@ -1012,12 +1002,9 @@ async function renderTaskDetail(taskId) {
       delete stageDlBtn.dataset.downloadArtifact;
     }
   }
-  if ($("#detailTriSteps")) {
-    $("#detailTriSteps").innerHTML = triStepStrip(t.status);
-  }
   if ($("#detailOutputMeta")) {
     $("#detailOutputMeta").innerHTML = `
-      <span class="identity-channel">${esc(t.modelLabel)} × ${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}</span>
+      <span>${esc(t.modelLabel)}</span>
       <span>${esc(t.typeCode)} (${esc(t.typeLabel)})</span>
       <span>${esc(t.sampleRate)}</span>
       <span>${esc(t.channels)}</span>
