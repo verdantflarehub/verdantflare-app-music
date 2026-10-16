@@ -8,7 +8,7 @@ function setup(api){
  const nodes=new Map([['#audioElement',audio]]);
  const get=id=>{if(!nodes.has(id))nodes.set(id,{textContent:'',style:{},dataset:{},disabled:false});return nodes.get(id)};
  const stem={artifact_id:'a',name:'audio.wav',media_type:'audio/wav'};
- const ctx={$:get,apiRequest:api,previewCache:new Map(),isPageActive:true,currentDetailTask:{stems:[stem]},activeStemIdx:0,window:{}};
+ const ctx={$:get,apiRequest:api,previewCache:new Map(),isPageActive:true,currentDetailTask:{stems:[stem]},activeStemIdx:0,window:{},document:{querySelectorAll:()=>[]}};
  vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('let audioRevision ='),src.indexOf('async function hydrateRefAudioPreviews')),ctx);ctx.selectAudioStem(stem);
  return {ctx,audio,get,stem};
 }
