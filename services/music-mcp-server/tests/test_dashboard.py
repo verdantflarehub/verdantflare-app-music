@@ -46,7 +46,7 @@ class DashboardAndTasksTest(unittest.TestCase):
             self.assertEqual(mime, "text/html; charset=utf-8")
             html_str = html_bytes.decode("utf-8")
             self.assertIn("Music MCP", html_str)
-            self.assertIn("v0.9.13", html_str)
+            self.assertIn(f"v{__version__}", html_str)
             self.assertNotIn("5090dev", html_str)
             self.assertNotIn("应用中心 /", html_str)
             self.assertNotIn("detailTriSteps", html_str)

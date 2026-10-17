@@ -728,7 +728,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.13";
+    const ver = mcpStatus.app_version || "0.9.14";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
     $("#mcpServiceIdentity").innerHTML =
