@@ -8,92 +8,80 @@
   <link rel="stylesheet" href="./dashboard.css">
 </head>
 
-<body>
-  <main class="main embed-active" id="appRoot">
-    <!-- 顶层面包屑：应用根级起算 Music MCP / 任务 | 模型 | MCP -->
+<body data-theme="light">
+  <main class="main embed-active studio-workspace" id="appRoot">
+    <!-- Tier 1: Top Breadcrumb (Root starts at Music MCP; switches to Music MCP / 任务 / {任务标题} on detail) -->
     <nav class="breadcrumb" id="appBreadcrumb" aria-label="面包屑">
       <a href="#tasks" data-nav-back="tasks">Music MCP</a>
       <span aria-hidden="true">/</span>
-      <span class="crumb-current" id="crumbCurrentView">任务</span>
+      <span class="crumb-current" id="crumbCurrentView" aria-current="page">任务</span>
     </nav>
 
-    <!-- 第一栏（模式 A）：顶栏一体化 App Header（一级视图任务/模型/MCP共用） -->
-    <header class="app-topbar" id="unifiedAppHeader">
-      <div class="app-identity">
-        <div class="app-badge-icon">
-          <svg class="icon" viewBox="0 0 24 24">
-            <path d="M9 18V5l11-2v13M9 9l11-2" />
-            <ellipse cx="6" cy="18" rx="3" ry="2" />
-            <ellipse cx="17" cy="16" rx="3" ry="2" />
-          </svg>
-        </div>
-        <span class="app-identity-title">Music MCP</span>
-        <span class="app-identity-tag tabular-nums" id="appVersionBadge">v0.9.14</span>
-      </div>
+    <!-- Global Status / Backoff Banner -->
+    <div class="status-banner backoff-banner" id="statusBanner" hidden></div>
 
-      <nav class="app-tabs" aria-label="Music MCP 一级导航">
-        <a class="app-tab active" data-tab="tasks" href="#tasks">任务 <span class="tab-count tabular-nums" id="tabTaskCount">0</span></a>
-        <a class="app-tab" data-tab="models" href="#models">模型 <span class="tab-count tabular-nums" id="tabModelCount">8</span></a>
-        <a class="app-tab" data-tab="mcp" href="#mcp">MCP <span class="tab-count tabular-nums" id="tabMcpCount">14</span></a>
-      </nav>
+    <!-- Tier 2: App Heading (Hidden when entering Task Detail view, matching Video MCP & Image MCP) -->
+    <header id="appHeader" class="studio-app-heading">
+      <div>
+        <h1>Music MCP</h1>
+        <p>生成整曲音乐、双人对唱、分离人声伴奏、转换角色声线与母带混音。</p>
+      </div>
+      <div class="creation-actions">
+        <span class="physics-pill tabular-nums" id="appVersionBadge">Music MCP · v0.9.15</span>
+      </div>
     </header>
 
-    <!-- 第一栏（模式 B）：二级详情面包屑顶栏（进入任务详情子页时显示） -->
-    <nav class="breadcrumb-topbar" id="detailBreadcrumbBar" aria-label="详情面包屑" hidden>
-      <a href="#tasks" data-nav-back="tasks">Music MCP</a>
-      <span aria-hidden="true">/</span>
-      <a href="#tasks" data-nav-back="tasks">任务</a>
-      <span aria-hidden="true">/</span>
-      <span class="crumb-current" id="crumbTaskTitle">任务详情</span>
+    <!-- Tier 3: Primary Underline Business Tabs (Hidden when entering Task Detail view) -->
+    <nav id="appTabs" class="studio-app-tabs" aria-label="Music MCP 一级导航">
+      <a class="app-tab active" data-tab="tasks" href="#tasks" aria-current="page">任务 <span class="tab-count tabular-nums" id="tabTaskCount">0</span></a>
+      <a class="app-tab" data-tab="models" href="#models">模型 <span class="tab-count tabular-nums" id="tabModelCount">8</span></a>
+      <a class="app-tab" data-tab="mcp" href="#mcp">MCP <span class="tab-count tabular-nums" id="tabMcpCount">14</span></a>
     </nav>
-
-    <!-- 全局状态反馈条（错误/提示） -->
-    <div class="status-banner" id="statusBanner" hidden></div>
-
-    <!-- 第二栏：随当前 Tab 或详情动态联动的视图标题区（View Heading） -->
-    <section class="view-heading" id="viewHeading">
-      <div>
-        <h1 id="viewTitle">音乐任务</h1>
-        <p id="viewSubtitle">查看、筛选与试听已执行的整曲生成、分轨分离、声线转换与母带混音任务</p>
-      </div>
-      <div class="view-meta-actions" id="viewActions"></div>
-    </section>
-
-    <!-- 标题内联编辑栏（点击“编辑标题”时展开） -->
-    <div class="title-edit-bar" id="titleEditBar" hidden>
-      <input type="text" class="search-input" id="titleEditInput" maxlength="80" placeholder="输入新的任务标题（1–80 字符）..." />
-      <button type="button" class="btn-primary" id="titleSaveBtn">保存标题</button>
-      <button type="button" class="btn-outline" id="titleCancelBtn">取消</button>
-    </div>
 
     <!-- ==================================================================
          1. 任务页 (#tasks，默认应用首页)
          ================================================================== -->
     <section id="sectionTasks">
-      <div class="toolbar" style="margin-bottom:14px;">
-        <input class="search-input" id="searchInput" type="search" placeholder="搜索任务名称、项目、声线或提示词...">
-        <select class="select-box" id="channelFilter" aria-label="渠道筛选">
+      <div class="task-actions">
+        <div class="sync-meta">
+          <span id="syncText" class="tabular-nums">刚刚同步 · 自动刷新已就绪</span>
+          <button type="button" id="refreshBtn" aria-label="刷新任务">↻ 刷新</button>
+          <details class="duration-note">
+            <summary class="tabular-nums" id="avgDurationSummary">平均时长 --m --s ⓘ</summary>
+            <p>按当前筛选范围统计已完成音乐任务的平均音频时长与持久化产物。</p>
+          </details>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <label class="search-wrap">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" aria-label="搜索任务" placeholder="搜索任务名称、模型、声线 ID 或提示词">
+          <span id="imeBadge" class="ime-badge">CJK 守卫</span>
+        </label>
+        <select id="channelFilter" aria-label="推理渠道">
           <option value="all">全部渠道</option>
           <option value="本地">本地</option>
           <option value="Higgsfield">Higgsfield</option>
         </select>
-        <select class="select-box" id="projectFilter" aria-label="项目筛选">
+        <select id="projectFilter" aria-label="所属项目">
           <option value="all">全部项目</option>
         </select>
-        <div class="view-switch">
+        <span class="physics-pill">↕↔ 方向键卡片导航</span>
+        <div class="switch view-switch">
           <button type="button" class="active" data-view-mode="gallery">画廊</button>
           <button type="button" data-view-mode="table">列表</button>
         </div>
       </div>
 
-      <div class="status-pills" id="statusPills" style="margin-bottom:18px;"></div>
-
-      <div class="gallery" id="taskGallery"></div>
+      <div class="statuses status-pills" id="statusPills"></div>
+      <div class="gallery" id="taskGallery" data-roving-grid="true"></div>
       <div class="table-wrap" id="taskTable" hidden></div>
+      <div class="pagination tabular-nums" id="taskCountFoot"></div>
     </section>
 
     <!-- ==================================================================
-         2. 任务详情子页 (#task=id，无损 4 项输入要素还原)
+         2. 任务详情子页 (#task=id，左栏舞台+提示词 / 右栏三要素)
          ================================================================== -->
     <section id="sectionTaskDetail" hidden>
       <div class="detail-shell">
@@ -102,66 +90,81 @@
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap" id="detailHeadBadges">
               <span class="identity-channel" id="detailHeadModelChannel" style="font-size:12px;color:var(--accent);font-weight:600"></span>
             </div>
-            <h2 id="detailShellTitle" style="font-size:20px;margin:4px 0 0;">任务详情</h2>
+            <h2 id="detailShellTitle" style="font-size:20px;margin-top:4px;">任务详情</h2>
+            <div class="title-form" id="titleEditBar" hidden>
+              <input type="text" id="titleEditInput" maxlength="80" placeholder="输入新的任务标题（1–80 字符）..." aria-label="编辑任务标题">
+              <button type="button" class="primary" id="titleSaveBtn">保存名称</button>
+              <button type="button" id="titleCancelBtn">取消</button>
+            </div>
             <small class="tabular-nums" style="color:var(--muted);display:block;margin-top:4px;" id="detailMetaLine"></small>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;" id="detailHeadActions">
-            <button type="button" class="btn-outline title-edit-icon" id="editTitleBtn" aria-label="编辑名称" title="编辑名称"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6Z"/><path d="m14 5 5 5"/></svg></button><span class="model-channel-pill" id="detailStatus"></span>
+          <div class="inspect-head-actions" id="detailHeadActions">
+            <button type="button" class="title-edit-icon" id="editTitleBtn" aria-label="编辑名称" title="编辑任务名称 (POST /api/tasks/{id}/title)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6Z"/><path d="m14 5 5 5"/></svg>
+            </button>
+            <span class="quota-badge" id="detailStatus"></span>
           </div>
         </div>
 
         <div class="inspect-layout">
+          <!-- Left Column (.output-pane): Output Stage + 1. Verbatim Prompt (100% aligned with Video MCP & Image MCP) -->
           <div class="output-pane">
-            <div class="pane-title" style="margin-bottom:10px;">
-              <h3>音频结果</h3>
-              <span class="factor-badge tabular-nums" id="detailStemCountBadge">0 轨音轨就绪</span>
-            </div>
-            <div class="result-stage">
-              <div class="music-stage-box">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-                  <div>
-                    <strong style="font-size:14px;display:block" id="activeStemTitle">Final Master 母带</strong>
-                    <small class="tabular-nums" style="font-size:11px;color:#94a3b8" id="activeStemSpec">点击播放当前音轨</small>
-                  </div>
-                  <span class="physics-pill tabular-nums" id="playerTime">00:00 / 00:00</span>
-                </div>
-                <button type="button" class="player-wave-stage music-wave-48" id="detailWaveBars" aria-label="播放或暂停当前音轨"></button>
-                <div>
-                  <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">选择音轨：</div>
-                  <div class="stem-tabs stem-pill-row" id="detailStemTabs"></div>
-                </div>
-                <div class="player-bar">
-                  <button class="btn-primary" type="button" id="playToggleBtn">▶ 播放</button>
-                  <div class="wave-track" id="waveTrack" title="点击跳转播放位置">
-                    <div class="wave-progress" id="waveProgress" style="width:0%;"></div>
-                  </div>
-                  <span class="tabular-nums" style="font-size:12px;color:#e2e8f0;" id="playerStatusText">🔊 100%</span>
-                </div>
-                <audio id="audioElement" preload="none" hidden></audio>
+            <div>
+              <div class="pane-title" style="margin-bottom:10px;">
+                <h3>生成结果（多轨分轨与母带试听舞台）</h3>
+                <span class="quota-badge tabular-nums" id="detailStemCountBadge">0 轨音轨就绪</span>
               </div>
+              <div class="result-stage">
+                <div class="music-stage-box">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+                    <div>
+                      <strong style="font-size:14px;display:block" id="activeStemTitle">Final Master 母带</strong>
+                      <small class="tabular-nums" style="font-size:11px;color:#94a3b8" id="activeStemSpec">点击播放当前音轨</small>
+                    </div>
+                    <span class="physics-pill tabular-nums" id="playerTime">00:00 / 00:00</span>
+                  </div>
+                  <button type="button" class="player-wave-stage music-wave-48" id="detailWaveBars" aria-label="播放或暂停当前音轨"></button>
+                  <div>
+                    <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">切换监听音轨（切换时自动归零播放游标）：</div>
+                    <div class="stem-tabs stem-pill-row" id="detailStemTabs"></div>
+                  </div>
+                  <div class="player-bar">
+                    <button class="primary" type="button" id="playToggleBtn">▶ 播放</button>
+                    <div class="wave-track" id="waveTrack" title="点击跳转播放位置">
+                      <div class="wave-progress" id="waveProgress" style="width:0%;"></div>
+                    </div>
+                    <span class="tabular-nums" style="font-size:12px;color:#e2e8f0;" id="playerStatusText">点击播放</span>
+                  </div>
+                  <audio id="audioElement" preload="none" hidden></audio>
+                </div>
+              </div>
+              <div class="result-controls" id="detailResultControls">
+                <span id="detailResultSummary">已登记项目 Artifact（支持切换母带与独立干声分轨）</span>
+                <div style="display:flex;gap:8px">
+                  <button type="button" id="exportLrcBtn">导出 LRC ↓</button>
+                  <button type="button" class="primary" id="stageDownloadBtn">下载当前音轨 ↓</button>
+                </div>
+              </div>
+              <div class="output-meta" id="detailOutputMeta"></div>
             </div>
-            <div class="result-controls" id="detailResultControls">
-              <span id="detailResultSummary">已登记项目 Artifact（支持切换母带与独立干声分轨）</span>
-              <button type="button" class="btn-outline" id="stageDownloadBtn">下载母带 ↓</button>
-            </div>
-            <div class="output-meta" id="detailOutputMeta"></div>
-          </div>
 
-          <div class="input-pane">
-            <!-- 1. 提示词与编曲指令（Prompt） -->
+            <!-- 1. 提示词与编曲指令（置于左栏生成结果正下方，与 Video MCP / Image MCP 100% 对齐） -->
             <section class="detail-section-block" aria-label="1. 提示词与编曲指令">
               <div class="pane-title">
                 <h3>1. 提示词与编曲指令（Prompt）</h3>
-                <span class="factor-badge">唯一 · 1 / 1（点击标签定位对应参考音轨或声线）</span>
+                <span class="quota-badge">唯一 · 1 / 1（点击标签定位右侧参考音轨、LRC 或声线）</span>
               </div>
               <div class="prompt-box prompt-sheet" id="detailPrompt"></div>
             </section>
+          </div>
 
+          <!-- Right Column (.input-pane): 2. LRC Lyrics + 3. Reference Audios/Stems + 4. RVC Voice Model -->
+          <div class="input-pane">
             <!-- 2. 结构化歌词 / LRC 时间轴 -->
             <section class="detail-section-block" id="ref-lrc-box" aria-label="2. 结构化歌词 / LRC 时间轴">
               <div class="pane-title">
-                <h3>2. 结构化歌词 / LRC 时间轴 <small>（全局最大 1 份，纯器乐/分轨/纯RVC可为空）</small></h3>
-                <button type="button" class="btn-outline" id="exportLrcBtn">导出 LRC</button><span class="factor-badge tabular-nums" id="detailLyricsBadge">0 / 1 份</span>
+                <h3>2. 结构化歌词 / LRC 时间轴 <small style="font-weight:400;color:var(--muted)">（全局最大 1 份，纯器乐/分轨/纯RVC可为空）</small></h3>
+                <span class="quota-badge tabular-nums" id="detailLyricsBadge">0 / 1 份</span>
               </div>
               <div class="lrc-list lrc-sheet" id="detailLrcList"></div>
             </section>
@@ -169,8 +172,8 @@
             <!-- 3. 参考音频 / 输入分轨干声 -->
             <section class="detail-section-block" aria-label="3. 参考音频 / 输入分轨干声">
               <div class="pane-title">
-                <h3>3. 参考音频 / 输入分轨干声 <small>（全局最大 4 轨，不同模型上限不同）</small></h3>
-                <span class="factor-badge tabular-nums" id="detailRefAudioCount">0 / 4 轨</span>
+                <h3>3. 参考音频 / 输入分轨干声 <small style="font-weight:400;color:var(--muted)">（全局最大 4 轨，不同模型上限不同）</small></h3>
+                <span class="quota-badge tabular-nums" id="detailRefAudioCount">0 / 4 轨</span>
               </div>
               <div id="detailRefAudioBody"></div>
             </section>
@@ -178,8 +181,8 @@
             <!-- 4. 角色声线模型（RVC Voice Model） -->
             <section class="detail-section-block" aria-label="4. 角色声线模型（RVC Voice Model）">
               <div class="pane-title">
-                <h3>4. 角色声线模型（RVC Voice Model） <small>（全局最大 1 个，不同模型上限不同）</small></h3>
-                <span class="factor-badge tabular-nums" id="detailVoiceConfigBadge">0 / 1 个</span>
+                <h3>4. 角色声线模型（RVC Voice Model） <small style="font-weight:400;color:var(--muted)">（全局最大 1 个，不同模型上限不同）</small></h3>
+                <span class="quota-badge tabular-nums" id="detailVoiceConfigBadge">0 / 1 个</span>
               </div>
               <div id="detailVoiceConfigBody"></div>
             </section>
@@ -188,7 +191,7 @@
 
         <section class="inspect-tech">
           <details>
-            <summary>技术信息与生成参数</summary>
+            <summary>技术信息与生成参数（默认收起，与 Video / Image MCP 一致）</summary>
             <div class="tech-grid tabular-nums" id="detailParams"></div>
             <div id="detailArtifacts" style="display:grid;gap:8px;margin-top:12px;"></div>
           </details>
@@ -200,41 +203,32 @@
          3. 模型目录页 (#models，按渠道分组 · 零冗余模型服务卡片)
          ================================================================== -->
     <section id="sectionModels" hidden>
-      <div class="model-filter-bar">
-        <div class="model-filter-field">
-          <label for="modelViewModeSelect">查看方式</label>
-          <select id="modelViewModeSelect">
-            <option value="channel">按渠道查看</option>
-            <option value="flat">按模型查看</option>
-          </select>
+      <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <h2>模型目录（分渠道展示）</h2>
+          <p>分渠道展示音乐与声学模型，不重复外层渠道名、不展示无业务的查看按钮；统一呈现支持能力（T2M / R2M / DUET / STEM / RVC / LRC / MIX）、参考音频配额、RVC 已安装角色声线、单任务最大容量（≤ 50MB）与底部 3 项输出规格胶囊。</p>
         </div>
-        <div class="model-filter-field">
-          <label for="modelSearchInput">搜索模型</label>
-          <input id="modelSearchInput" type="search" placeholder="模型名称、用途或模型 ID" />
-        </div>
-        <div class="model-filter-field">
-          <label for="modelBizSelect">业务</label>
-          <select id="modelBizSelect">
-            <option value="all">全部业务</option>
-            <option value="音乐生成">音乐生成</option>
-            <option value="双人对唱">双人对唱</option>
-            <option value="分轨分离">分轨分离</option>
-            <option value="声线转换">声线转换</option>
-            <option value="歌词对齐">歌词对齐</option>
-            <option value="母带混音">母带混音</option>
-          </select>
-        </div>
-        <div class="model-filter-field">
-          <label for="modelChannelSelect">渠道</label>
-          <select id="modelChannelSelect">
-            <option value="all">全部渠道</option>
-            <option value="本地">本地</option>
-            <option value="Higgsfield">Higgsfield</option>
-          </select>
-        </div>
+        <span class="physics-pill tabular-nums" id="modelSummaryBadge">Snapshot · 2 渠道 / 8 项</span>
       </div>
 
-      <div class="model-summary-line tabular-nums" id="modelSummaryLine">8 个模型 · 2 个渠道</div>
+      <div class="toolbar">
+        <label class="search-wrap">
+          <span aria-hidden="true">⌕</span>
+          <input id="modelSearchInput" type="search" aria-label="搜索模型" placeholder="搜索模型名称、能力代码或声线 ID (如 mengsk-comfort-v2)">
+        </label>
+        <select id="modelBizSelect" aria-label="业务类型筛选">
+          <option value="all">全部业务</option>
+          <option value="音乐生成">音乐生成</option>
+          <option value="双人对唱">双人对唱</option>
+          <option value="分轨分离">分轨分离</option>
+          <option value="声线转换">声线转换</option>
+          <option value="歌词对齐">歌词对齐</option>
+          <option value="母带混音">母带混音</option>
+        </select>
+        <span class="tabular-nums" id="modelSummaryLine" style="margin-left:auto;font-size:12px;color:var(--muted)">当前展示 2 个渠道 · 8 个模型</span>
+      </div>
+
+      <div class="statuses" id="modelChannelTabs" aria-label="模型渠道筛选"></div>
       <div id="modelChannelSections"></div>
     </section>
 
@@ -242,22 +236,30 @@
          4. MCP 服务与能力页 (#mcp)
          ================================================================== -->
     <section id="sectionMcp" hidden>
-      <div class="mcp-status-card" style="margin-bottom:18px;">
+      <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <h2>MCP 服务与能力目录</h2>
+          <p>统一经 Studio 受控入口（STUDIO_MCP_URL）访问，覆盖预检准备、独唱生成、双人对唱、分轨分离、RVC 声线转换与 LRC 母带混音。</p>
+        </div>
+        <span class="physics-pill">MCP Token 即调用授权 · 6 组 14 项工具</span>
+      </div>
+
+      <div class="mcp-contract-strip" aria-label="Music MCP 服务状态与接入契约">
         <div class="mcp-kv">
-          <label>服务标识与状态</label>
-          <strong id="mcpServiceIdentity">verdantflare-music (v0.9.14) · <span style="color:var(--accent);">在线 Ready</span></strong>
+          <small>服务标识与运行状态</small>
+          <strong id="mcpServiceIdentity">verdantflare-music (v0.9.15) · <span style="color:var(--accent);">● 在线 Ready</span></strong>
         </div>
         <div class="mcp-kv">
-          <label>外部唯一访问入口</label>
-          <strong id="mcpExternalEntry">STUDIO_MCP_URL（仅允许 Studio 网关访问 :8000）</strong>
+          <small>外部唯一受控入口</small>
+          <strong id="mcpExternalEntry"><code>STUDIO_MCP_URL</code>（仅允许 Studio 网关访问 :8000）</strong>
         </div>
         <div class="mcp-kv">
-          <label>能力与产物回读契约</label>
-          <strong id="mcpContractSummary">6 大业务分组 / 14 项工具 · Authority 回读</strong>
+          <small>能力统计与产物回读契约</small>
+          <strong class="tabular-nums" id="mcpContractSummary">6 大业务分组 · 共 14 项工具 · :8001 Authority 授权回读</strong>
         </div>
       </div>
 
-      <div class="mcp-group-grid" id="mcpGroupGrid"></div>
+      <div class="resource-grid" id="mcpGroupGrid"></div>
     </section>
   </main>
 

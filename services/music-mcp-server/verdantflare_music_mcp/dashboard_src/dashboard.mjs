@@ -248,10 +248,12 @@ let models = DEFAULT_MODELS.map(enrichModel);
 let mcpStatus = null;
 let currentStatus = "全部";
 let currentViewMode = "gallery";
+let currentModelChannel = "全部";
 let currentDetailTask = null;
 let activeStemIdx = 0;
 let savedTasksScrollY = 0;
 let isPageActive = true;
+let isComposing = false;
 let pollTimer = null;
 const previewCache = new Map();
 
@@ -420,11 +422,11 @@ function showBanner(msg, isError = false) {
   if (!msg) {
     el.hidden = true;
     el.textContent = "";
-    el.className = "status-banner";
+    el.className = "status-banner backoff-banner";
     return;
   }
   el.hidden = false;
-  el.className = `status-banner${isError ? " error" : ""}`;
+  el.className = `status-banner backoff-banner${isError ? " error" : ""}`;
   el.textContent = msg;
 }
 
@@ -544,7 +546,20 @@ function renderTaskSection() {
 
   const filtered = base.filter((t) => currentStatus === "全部" || t.status === currentStatus);
 
-  $("#tabTaskCount").textContent = String(tasks.length);
+  if ($("#tabTaskCount")) $("#tabTaskCount").textContent = String(tasks.length);
+  if ($("#syncText")) $("#syncText").textContent = `刚刚同步 · 共 ${tasks.length} 项持久化任务`;
+
+  const withDur = filtered.filter((t) => t.durationSeconds > 0);
+  if ($("#avgDurationSummary")) {
+    if (withDur.length > 0) {
+      const avgSec = Math.round(withDur.reduce((acc, t) => acc + t.durationSeconds, 0) / withDur.length);
+      const mins = Math.floor(avgSec / 60);
+      const secs = String(avgSec % 60).padStart(2, "0");
+      $("#avgDurationSummary").textContent = `平均时长 ${mins}m ${secs}s ⓘ`;
+    } else {
+      $("#avgDurationSummary").textContent = `共 ${filtered.length} 项任务 ⓘ`;
+    }
+  }
 
   $("#statusPills").innerHTML = STATUS_LIST.map((st) => {
     const count = st === "全部" ? base.length : base.filter((x) => x.status === st).length;
@@ -558,7 +573,7 @@ function renderTaskSection() {
     $("#taskGallery").innerHTML = filtered
       .map(
         (t, idx) => `
-      <article class="card">
+      <article class="card roving-item" data-open-task="${esc(t.id)}" role="button" tabindex="${idx === 0 ? "0" : "-1"}" aria-label="${esc(t.title)}">
         <div class="thumb">
           <div class="task-identity generation-identity" title="${esc(t.modelLabel)} × ${esc(t.channelLabel)}">
             <strong class="identity-model">${esc(t.modelLabel)}</strong>
@@ -568,7 +583,7 @@ function renderTaskSection() {
           <span class="status-badge ${esc(t.statusClass)}">${esc(t.status)}</span>
           <div class="thumb-wave">
             <div class="wave-bars">${buildWaveBars(t.id || idx + 1, 48, 64)}</div>
-            <span>0.7 Gamma 48-Bar · 检视多轨与 4 项输入要素</span>
+            <span>0.7 Gamma 48-Bar · 点击检视多轨与 4 项输入要素</span>
           </div>
           <div class="image-times tabular-nums">
             <span>${esc(t.createdAt)}</span>
@@ -586,7 +601,6 @@ function renderTaskSection() {
               <span>${esc(t.audioLength)}</span>
               <span>${esc(t.format)}</span>
             </div>
-            <a class="detail-link" href="#task=${encodeURIComponent(t.id)}" data-open-task="${esc(t.id)}">查看</a>
           </div>
         </div>
       </article>
@@ -604,21 +618,19 @@ function renderTaskSection() {
             <th>模式与规格</th>
             <th>创建时间</th>
             <th>状态</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
           ${filtered
             .map(
               (t) => `
-            <tr>
+            <tr data-open-task="${esc(t.id)}" tabindex="0" role="button" aria-label="${esc(t.title)}">
               <td><strong>${esc(t.title)}</strong></td>
               <td>${esc(t.modelLabel)} × ${esc(t.channelLabel)}</td>
               <td><code>${esc(t.project)}</code></td>
               <td><div class="tags tabular-nums"><span class="type-code" title="${esc(t.typeLabel)}">${esc(t.typeCode)}</span><span>${esc(t.sampleRate)}</span><span>${esc(t.channels)}</span><span>${esc(t.audioLength)}</span><span>${esc(t.format)}</span></div></td>
               <td class="tabular-nums">${esc(t.createdAt)}</td>
               <td>${esc(t.status)}</td>
-              <td><a class="detail-link" href="#task=${encodeURIComponent(t.id)}" data-open-task="${esc(t.id)}">查看</a></td>
             </tr>
           `
             )
@@ -626,6 +638,10 @@ function renderTaskSection() {
         </tbody>
       </table>
     `;
+  }
+
+  if ($("#taskCountFoot")) {
+    $("#taskCountFoot").textContent = `显示 ${filtered.length} / ${tasks.length} 条音乐任务`;
   }
 
   $("#taskGallery").hidden = currentViewMode !== "gallery";
@@ -657,66 +673,85 @@ function renderModelCardHtml(m) {
       : "";
 
   return `
-    <article class="model-card">
-      <div class="model-card-top">
-        <span class="model-biz-label">${esc(m.biz)}</span>
+    <article class="resource-card">
+      <div class="resource-head">
+        <div>
+          <span class="model-biz-label">${esc(m.biz)}</span>
+          <h3 style="margin-top:4px;">${esc(m.title)}</h3>
+        </div>
         <code class="model-id-code">${esc(m.modelId)}</code>
       </div>
-      <h3 class="model-card-title">${esc(m.title)}</h3>
-      <p class="model-desc">${esc(m.desc)}</p>
-      <div class="model-cap-row">
-        ${(m.caps || []).map((c) => `<span class="cap-pill">${esc(c)}</span>`).join("")}
+      <p>${esc(m.desc)}</p>
+      <div class="cap-row">
+        ${(m.caps || []).map((c) => `<span class="cap-pill"><strong>${esc(c)}</strong></span>`).join("")}
       </div>
       <div class="model-quota-strip">
         <div>参考音频/分轨配额：<strong>${esc(m.refQuota)}</strong></div>
         <div>单次任务最大容量：<strong>${esc(m.maxSize)}</strong> · 关联工具：${(m.tools || []).map((t) => `<code>${esc(t)}</code>`).join(" / ")}</div>
         ${voicesHtml}
       </div>
-      <div class="model-foot">
-        <div class="tags tabular-nums">
-          ${(m.outputSpecs || []).map((s) => `<span>${esc(s)}</span>`).join("")}
-        </div>
+      <div class="tags tabular-nums" style="margin-top:auto;">
+        ${(m.outputSpecs || []).map((s) => `<span>${esc(s)}</span>`).join("")}
       </div>
     </article>
   `;
 }
 
 function renderModelsSection() {
-  const viewMode = $("#modelViewModeSelect")?.value || "channel";
   const q = ($("#modelSearchInput")?.value || "").trim().toLowerCase();
   const biz = $("#modelBizSelect")?.value || "all";
-  const ch = $("#modelChannelSelect")?.value || "all";
 
-  const filtered = models.filter((m) => {
-    const matchQ = !q || `${m.title} ${m.desc} ${m.modelId} ${m.biz}`.toLowerCase().includes(q);
+  const base = models.filter((m) => {
+    const voiceStr = (m.voices || []).map((v) => v.id).join(" ");
+    const matchQ = !q || `${m.title} ${m.desc} ${m.modelId} ${m.biz} ${voiceStr}`.toLowerCase().includes(q);
     const matchBiz = biz === "all" || m.biz === biz;
-    const matchCh = ch === "all" || m.channel === ch;
-    return matchQ && matchBiz && matchCh;
+    return matchQ && matchBiz;
   });
 
-  const channelSet = new Set(filtered.map((m) => m.channel));
-  $("#modelSummaryLine").textContent = `${filtered.length} 个模型 · ${channelSet.size} 个渠道`;
-  $("#tabModelCount").textContent = String(models.length);
-
-  const container = $("#modelChannelSections");
-  if (viewMode === "flat") {
-    container.innerHTML = `<div class="model-grid">${filtered.map(renderModelCardHtml).join("")}</div>`;
-    notifyResize();
-    return;
+  const channelList = ["全部", "本地", "Higgsfield"];
+  if ($("#modelChannelTabs")) {
+    $("#modelChannelTabs").innerHTML = channelList
+      .map((ch) => {
+        const count = ch === "全部" ? base.length : base.filter((m) => m.channel === ch).length;
+        const label = ch === "全部" ? "全部渠道" : ch;
+        return `<button type="button" class="tabular-nums ${currentModelChannel === ch ? "active" : ""}" data-model-channel="${esc(ch)}">${esc(label)} (${count})</button>`;
+      })
+      .join("");
   }
 
+  const filtered = base.filter((m) => currentModelChannel === "全部" || m.channel === currentModelChannel);
+  const channelSet = new Set(filtered.map((m) => m.channel));
+  if ($("#modelSummaryLine")) {
+    $("#modelSummaryLine").textContent = `当前展示 ${channelSet.size} 个渠道 · ${filtered.length} 个模型`;
+  }
+  if ($("#tabModelCount")) {
+    $("#tabModelCount").textContent = String(models.length);
+  }
+  if ($("#modelSummaryBadge")) {
+    $("#modelSummaryBadge").textContent = `Snapshot · 2 渠道 / ${models.length} 项`;
+  }
+
+  const container = $("#modelChannelSections");
   const channelOrder = ["本地", "Higgsfield"];
   container.innerHTML = channelOrder
     .map((channelName) => {
       const groupModels = filtered.filter((m) => m.channel === channelName);
       if (!groupModels.length) return "";
+      const channelDesc =
+        channelName === "本地"
+          ? "集群内网受控声学与音乐推理服务（MiniMax Music 3 / ACE-Step 1.5 / UVR5 / RVC v2 / Whisper / Pedalboard）"
+          : "云端高并发整曲生成与商业曲风探索渠道（统一经 Music MCP 适配网关调度）";
       return `
-        <section class="channel-group-section">
-          <div class="channel-group-head">
-            <h2 class="channel-group-title">${channelLogoFor(channelName)}${esc(channelName)}</h2>
-            <span class="channel-group-count tabular-nums">${groupModels.length} 个模型</span>
-          </div>
-          <div class="model-grid">
+        <section class="channel-group">
+          <header class="channel-group-header">
+            <div class="channel-title-wrap">
+              ${channelLogoFor(channelName)}
+              <h3>${esc(channelName)}</h3>
+              <span class="quota-badge tabular-nums">${groupModels.length} 个模型</span>
+            </div>
+            <span class="channel-meta">${esc(channelDesc)}</span>
+          </header>
+          <div class="resource-grid">
             ${groupModels.map(renderModelCardHtml).join("")}
           </div>
         </section>
@@ -728,20 +763,27 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.14";
+    const ver = mcpStatus.app_version || "0.9.15";
     const regOk = mcpStatus.gateway?.registered;
-    const statusText = regOk ? "在线 Ready (etcd 已注册)" : "在线 Ready";
-    $("#mcpServiceIdentity").innerHTML =
-      `verdantflare-music (v${esc(ver)}) · <span style="color:var(--accent);">${esc(statusText)}</span>`;
+    const statusText = regOk ? "● 在线 Ready (etcd 已注册)" : "● 在线 Ready";
+    if ($("#mcpServiceIdentity")) {
+      $("#mcpServiceIdentity").innerHTML =
+        `verdantflare-music (v${esc(ver)}) · <span style="color:var(--accent);">${esc(statusText)}</span>`;
+    }
     const toolCount = Array.isArray(mcpStatus.tools) && mcpStatus.tools.length ? mcpStatus.tools.length : 14;
-    $("#tabMcpCount").textContent = String(toolCount);
-    $("#mcpContractSummary").textContent = `6 大业务分组 / ${toolCount} 项工具 · :8001 Authority 回读`;
+    if ($("#tabMcpCount")) $("#tabMcpCount").textContent = String(toolCount);
+    if ($("#mcpContractSummary")) {
+      $("#mcpContractSummary").textContent = `6 大业务分组 · 共 ${toolCount} 项工具 · :8001 Authority 授权回读`;
+    }
   }
 
   $("#mcpGroupGrid").innerHTML = MCP_GROUPS.map(
     (g) => `
-    <article class="mcp-group-card">
-      <strong>${esc(g.title)}</strong>
+    <article class="resource-card">
+      <div class="resource-head">
+        <h3>${esc(g.title)}</h3>
+        <span class="quota-badge">MCP Group</span>
+      </div>
       <div class="mcp-tool-list">
         ${g.tools
           .map(
@@ -936,51 +978,30 @@ async function renderTaskDetail(taskId) {
 
   currentDetailTask = t;
   activeStemIdx = 0;
-  $("#titleEditBar").hidden = true;
-  $("#crumbTaskTitle").textContent = t.title;
-  $("#viewTitle").textContent = t.title;
-  $("#viewSubtitle").innerHTML = `
-    <span class="tabular-nums" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
-      <strong>${esc(t.modelLabel)}</strong> × ${channelLogoFor(t.channelLabel)}<strong>${esc(t.channelLabel)}</strong>
-      · <span class="tags"><span class="type-code">${esc(t.typeCode)}</span><span>${esc(t.sampleRate)}</span><span>${esc(t.channels)}</span><span>${esc(t.audioLength)}</span><span>${esc(t.format)}</span></span>
-      · ${esc(t.durationText)}
-    </span>
-  `;
+  if ($("#titleEditBar")) $("#titleEditBar").hidden = true;
+  if ($("#crumbCurrentView")) {
+    $("#crumbCurrentView").innerHTML = `<a href="#tasks" data-nav-back="tasks">任务</a> <span aria-hidden="true">/</span> <span aria-current="page">${esc(t.title)}</span>`;
+  }
 
   const primaryAudioStem =
     t.stems.find((s) => s.media_type?.startsWith("audio/") || s.name?.toLowerCase().endsWith(".wav") || s.name?.toLowerCase().endsWith(".mp3")) ||
     t.stems[0];
 
-  $("#viewActions").innerHTML = `
-    <span class="model-channel-pill">${esc(t.status)}</span>
-  `;
-
   // .inspect-head
   if ($("#detailShellTitle")) {
     $("#detailShellTitle").textContent = t.title;
   }
-  if ($("#detailHeadModelChannel")) {
-    $("#detailHeadModelChannel").innerHTML = `${esc(t.modelLabel)} × ${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}`;
-  }
-  if ($("#detailHeadModePill")) {
-    $("#detailHeadModePill").innerHTML = `<strong>${esc(t.typeCode)}</strong><small>${esc(t.typeLabel)}</small>`;
-  }
   const totalBytes = t.stems.reduce((acc, s) => acc + (Number(s.size) || 0), 0);
-  if ($("#detailHeadCapacityPill")) {
-    $("#detailHeadCapacityPill").textContent = `单任务参考容量：${formatBytes(totalBytes)} / ≤ 50 MB`;
+  if ($("#detailHeadBadges")) {
+    $("#detailHeadBadges").innerHTML = `
+      <span class="identity-channel" id="detailHeadModelChannel" style="font-size:12px;color:var(--accent);font-weight:600">${esc(t.modelLabel)} × ${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}</span>
+      <span class="cap-pill"><strong>${esc(t.typeCode)}</strong><small>${esc(t.typeLabel)}</small></span>
+      <span class="quota-badge tabular-nums">单任务参考容量：${formatBytes(totalBytes)} / ≤ 50 MB</span>
+    `;
   }
-  $("#detailStatus").textContent = t.status;
-  $("#detailMetaLine").textContent = `规格：${t.sampleRate} / ${t.audioLength} / ${t.channels} / ${t.format} · 创建时间：${t.createdAt} · 所属项目：${t.project}`;
-
-  const headDlBtn = $("#headDownloadPrimaryBtn");
-  if (headDlBtn) {
-    if (primaryAudioStem) {
-      headDlBtn.hidden = false;
-      headDlBtn.dataset.downloadArtifact = primaryAudioStem.artifact_id;
-      headDlBtn.dataset.downloadName = primaryAudioStem.name;
-    } else {
-      headDlBtn.hidden = true;
-    }
+  if ($("#detailStatus")) $("#detailStatus").textContent = t.status;
+  if ($("#detailMetaLine")) {
+    $("#detailMetaLine").textContent = `规格：${t.sampleRate} / ${t.audioLength} / ${t.channels} / ${t.format} · 创建时间：${t.createdAt} · 所属项目：${t.project}`;
   }
 
   // Left .output-pane
@@ -1039,11 +1060,10 @@ async function renderTaskDetail(taskId) {
     `;
   }
 
-  // Right .input-pane — 4 Input Factors
-  // 1. 提示词与编曲指令（Prompt）
+  // Left .output-pane — 1. 提示词与编曲指令（Prompt）
   $("#detailPrompt").innerHTML = renderPromptWithChips(t);
 
-  // 2. 结构化歌词 / LRC 时间轴
+  // Right .input-pane — 2. 结构化歌词 / LRC 时间轴
   if ($("#detailLyricsBadge")) {
     $("#detailLyricsBadge").textContent = t.lrc.length > 0 ? `1 / 1 份（已对齐 ${t.lrc.length} 行）` : "0 / 1 份";
     $("#detailLyricsBadge").classList.toggle("empty", t.lrc.length === 0);
@@ -1203,10 +1223,9 @@ function syncRoute(nextRoute, notifyHost = true) {
 
   if (rawHash.startsWith("task=")) {
     const taskId = decodeURIComponent(rawHash.slice(5));
-    if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = true;
-    $("#unifiedAppHeader").hidden = true;
-    $("#detailBreadcrumbBar").hidden = false;
-    if ($("#viewHeading")) $("#viewHeading").hidden = true;
+    if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = false;
+    if ($("#appHeader")) $("#appHeader").hidden = true;
+    if ($("#appTabs")) $("#appTabs").hidden = true;
     $("#sectionTasks").hidden = true;
     $("#sectionModels").hidden = true;
     $("#sectionMcp").hidden = true;
@@ -1216,17 +1235,19 @@ function syncRoute(nextRoute, notifyHost = true) {
   }
 
   resetAudioPreview();
-  $("#titleEditBar").hidden = true;
+  if ($("#titleEditBar")) $("#titleEditBar").hidden = true;
 
   if ($("#appBreadcrumb")) $("#appBreadcrumb").hidden = false;
-  $("#unifiedAppHeader").hidden = false;
-  $("#detailBreadcrumbBar").hidden = true;
-  if ($("#viewHeading")) $("#viewHeading").hidden = false;
+  if ($("#appHeader")) $("#appHeader").hidden = false;
+  if ($("#appTabs")) $("#appTabs").hidden = false;
   $("#sectionTaskDetail").hidden = true;
 
   const tab = ["tasks", "models", "mcp"].includes(rawHash) ? rawHash : "tasks";
   document.querySelectorAll(".app-tab").forEach((el) => {
-    el.classList.toggle("active", el.dataset.tab === tab);
+    const active = el.dataset.tab === tab;
+    el.classList.toggle("active", active);
+    if (active) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
   });
 
   if ($("#crumbCurrentView")) {
@@ -1238,12 +1259,6 @@ function syncRoute(nextRoute, notifyHost = true) {
   $("#sectionMcp").hidden = tab !== "mcp";
 
   if (tab === "tasks") {
-    $("#viewTitle").textContent = "音乐任务";
-    $("#viewSubtitle").textContent = "查看、筛选与试听已执行的整曲生成、分轨分离、声线转换与母带混音任务";
-    $("#viewActions").innerHTML = `
-      <span class="tabular-nums">已同步 · ${tasks.length} 项持久化任务</span>
-      <button type="button" class="btn-outline" id="refreshBtn">刷新</button>
-    `;
     renderTaskSection();
     if (savedTasksScrollY > 0) {
       const targetY = savedTasksScrollY;
@@ -1251,19 +1266,8 @@ function syncRoute(nextRoute, notifyHost = true) {
       requestAnimationFrame(() => window.scrollTo(0, targetY));
     }
   } else if (tab === "models") {
-    $("#viewTitle").textContent = "模型目录";
-    $("#viewSubtitle").textContent = "按接入渠道（本地 / Higgsfield）分组查看已注册音乐模型、能力配额与可用人声音色（零冗余直展）";
-    $("#viewActions").innerHTML = `
-      <span class="tabular-nums">${models.length} 个模型 · 2 个渠道</span>
-      <button type="button" class="btn-outline" id="refreshModelsBtn">刷新目录</button>
-    `;
     renderModelsSection();
   } else if (tab === "mcp") {
-    $("#viewTitle").textContent = "MCP 服务与能力";
-    $("#viewSubtitle").textContent = "查看 Studio 统一 MCP 接入状态、网络隔离边界与各业务分组工具 Schema 定义";
-    $("#viewActions").innerHTML = `
-      <span class="tabular-nums">6 大业务分组 · 共 14 项注册工具</span>
-    `;
     renderMcpSection();
   }
 }
@@ -1277,8 +1281,8 @@ async function refreshDashboardData(silent = false) {
       apiRequest("GET", "/api/mcp/status").catch(() => null),
     ]);
 
-    if (dashData?.app_version) {
-      $("#appVersionBadge").textContent = `v${dashData.app_version}`;
+    if (dashData?.app_version && $("#appVersionBadge")) {
+      $("#appVersionBadge").textContent = `Music MCP · v${dashData.app_version}`;
     }
     if (Array.isArray(dashData?.tasks)) {
       tasks = dashData.tasks.map(normalizeTask);
@@ -1344,6 +1348,13 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
+  const mChBtn = e.target.closest("[data-model-channel]");
+  if (mChBtn) {
+    currentModelChannel = mChBtn.dataset.modelChannel || "全部";
+    renderModelsSection();
+    return;
+  }
+
   const vmBtn = e.target.closest("[data-view-mode]");
   if (vmBtn) {
     currentViewMode = vmBtn.dataset.viewMode;
@@ -1405,7 +1416,7 @@ document.addEventListener("click", async (e) => {
 
   if (e.target.closest("#titleCancelBtn")) {
     $("#titleEditBar").hidden = true;
-    $("#editTitleBtn").focus();
+    $("#editTitleBtn")?.focus();
     notifyResize();
     return;
   }
@@ -1425,10 +1436,11 @@ document.addEventListener("click", async (e) => {
         currentDetailTask = updated;
         const idx = tasks.findIndex((x) => x.id === updated.id);
         if (idx >= 0) tasks[idx] = updated;
-        $("#viewTitle").textContent = updated.title;
-        $("#crumbTaskTitle").textContent = updated.title;
         if ($("#detailShellTitle")) {
           $("#detailShellTitle").textContent = updated.title;
+        }
+        if ($("#crumbCurrentView")) {
+          $("#crumbCurrentView").innerHTML = `<a href="#tasks" data-nav-back="tasks">任务</a> <span aria-hidden="true">/</span> <span aria-current="page">${esc(updated.title)}</span>`;
         }
         $("#titleEditBar").hidden = true;
         showBanner("");
@@ -1455,6 +1467,30 @@ document.addEventListener("click", async (e) => {
   if (e.target.closest("#refreshBtn") || e.target.closest("#refreshModelsBtn")) {
     await refreshDashboardData(false);
     return;
+  }
+});
+
+// Keyboard support: Enter/Space on whole-card or whole-row [data-open-task] & Roving Tabindex
+document.addEventListener("keydown", (e) => {
+  const openTarget = e.target.closest("[data-open-task]");
+  if (openTarget && (e.key === "Enter" || e.key === " ")) {
+    e.preventDefault();
+    savedTasksScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    syncRoute(`task=${encodeURIComponent(openTarget.dataset.openTask)}`);
+    return;
+  }
+
+  const grid = e.target.closest('[data-roving-grid="true"]');
+  if (grid && ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) {
+    const items = Array.from(grid.querySelectorAll(".roving-item"));
+    const curIdx = items.indexOf(e.target.closest(".roving-item"));
+    if (curIdx < 0) return;
+    e.preventDefault();
+    let nextIdx = curIdx;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") nextIdx = Math.min(items.length - 1, curIdx + 1);
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") nextIdx = Math.max(0, curIdx - 1);
+    items.forEach((it, idx) => it.setAttribute("tabindex", idx === nextIdx ? "0" : "-1"));
+    items[nextIdx]?.focus();
   }
 });
 
@@ -1506,14 +1542,27 @@ function handleWaveSeek(e) {
 $("#waveTrack")?.addEventListener("click", handleWaveSeek);
 window.addEventListener("pagehide", resetAudioPreview);
 
-
-$("#searchInput")?.addEventListener("input", renderTaskSection);
+const searchEl = $("#searchInput");
+if (searchEl) {
+  searchEl.addEventListener("compositionstart", () => {
+    isComposing = true;
+    const b = $("#imeBadge");
+    if (b) { b.textContent = "IME 组合中"; b.classList.add("composing"); }
+  });
+  searchEl.addEventListener("compositionend", () => {
+    isComposing = false;
+    const b = $("#imeBadge");
+    if (b) { b.textContent = "CJK 守卫"; b.classList.remove("composing"); }
+    renderTaskSection();
+  });
+  searchEl.addEventListener("input", () => {
+    if (!isComposing) renderTaskSection();
+  });
+}
 $("#channelFilter")?.addEventListener("change", renderTaskSection);
 $("#projectFilter")?.addEventListener("change", renderTaskSection);
-$("#modelViewModeSelect")?.addEventListener("change", renderModelsSection);
 $("#modelSearchInput")?.addEventListener("input", renderModelsSection);
 $("#modelBizSelect")?.addEventListener("change", renderModelsSection);
-$("#modelChannelSelect")?.addEventListener("change", renderModelsSection);
 window.addEventListener("hashchange", syncRoute);
 
 // Initialize
@@ -1535,3 +1584,4 @@ pollTimer = setInterval(() => {
     refreshDashboardData(true);
   }
 }, 10000);
+
