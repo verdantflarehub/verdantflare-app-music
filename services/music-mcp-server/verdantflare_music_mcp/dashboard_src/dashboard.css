@@ -729,6 +729,7 @@ th {
   padding: 18px 20px 20px;
 }
 
+.channel-group-header,
 .channel-group-head {
   display: flex;
   align-items: center;
@@ -740,6 +741,7 @@ th {
   border-bottom: 0.5px solid var(--line-strong);
 }
 
+.channel-title-wrap,
 .channel-group-title {
   display: flex;
   align-items: center;
@@ -796,6 +798,7 @@ th {
   transform: translateY(-1px);
 }
 
+.resource-head,
 .resource-card-head,
 .model-card-top {
   display: flex;
@@ -817,6 +820,7 @@ th {
   flex: none;
 }
 
+.cap-row,
 .model-cap-row {
   display: flex;
   gap: 5px;
@@ -1074,9 +1078,12 @@ th {
 
 .quota-badge.empty,
 .factor-badge.empty {
+  padding: 2px 8px;
+  border-radius: 99px;
   background: var(--subtle);
   color: var(--muted);
   border: 0.5px solid var(--line-strong);
+  box-shadow: none;
 }
 
 .result-stage {
@@ -1417,7 +1424,6 @@ th {
   font-variant-numeric: tabular-nums;
 }
 
-.empty,
 .empty-state {
   padding: 60px 20px;
   text-align: center;

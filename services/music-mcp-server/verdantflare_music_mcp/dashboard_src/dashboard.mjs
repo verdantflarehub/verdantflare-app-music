@@ -581,10 +581,7 @@ function renderTaskSection() {
             <strong class="identity-channel">${channelLogoFor(t.channelLabel)}${esc(t.channelLabel)}</strong>
           </div>
           <span class="status-badge ${esc(t.statusClass)}">${esc(t.status)}</span>
-          <div class="thumb-wave">
-            <div class="wave-bars">${buildWaveBars(t.id || idx + 1, 48, 64)}</div>
-            <span>0.7 Gamma 48-Bar · 点击检视多轨与 4 项输入要素</span>
-          </div>
+          <div class="music-thumb-wave wave-bars" aria-hidden="true">${buildWaveBars(t.id || idx + 1, 48, 64)}</div>
           <div class="image-times tabular-nums">
             <span>${esc(t.createdAt)}</span>
             <span>${esc(t.durationText)}</span>
@@ -763,7 +760,7 @@ function renderModelsSection() {
 
 function renderMcpSection() {
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.15";
+    const ver = mcpStatus.app_version || "0.9.16";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "● 在线 Ready (etcd 已注册)" : "● 在线 Ready";
     if ($("#mcpServiceIdentity")) {
