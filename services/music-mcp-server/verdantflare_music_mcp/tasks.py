@@ -16,9 +16,9 @@ from .artifacts import ArtifactRecord, ArtifactStore
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 OPERATION_WORKFLOW_MAP: dict[str, tuple[str, str, str, str, str, str]] = {
-    "vocal.tune": ("full_song", "独立修音", "WORLD", "TUNE", "人声修音", "48kHz"),
-    "vocal.process": ("full_song", "人声效果", "Production DSP", "FX", "电子人声", "48kHz"),
-    "instrument.render": ("full_song", "合成器分轨", "VF Synth", "SYNTH", "乐器渲染", "48kHz"),
+    "voice.tune": ("full_song", "独立修音", "WORLD", "TUNE", "人声修音", "48kHz"),
+    "voice.process": ("full_song", "人声效果", "Production DSP", "FX", "电子人声", "48kHz"),
+    "music.instrument_render": ("full_song", "合成器分轨", "VF Synth", "SYNTH", "乐器渲染", "48kHz"),
     "mix.render": ("full_song", "多轨预混", "Production DSP", "MIX", "预混", "48kHz"),
     "music.generate": ("generate", "单曲生成", "MiniMax Music 3", "T2M", "文生音乐", "32kHz"),
     "music.redraw": ("redraw", "局部重绘", "ACE-Step 1.5", "R2M", "局部重绘", "48kHz"),

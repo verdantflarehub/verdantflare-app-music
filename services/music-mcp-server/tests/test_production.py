@@ -52,21 +52,21 @@ class ProductionJobsTest(unittest.TestCase):
                 payload=b"source",
             )
             request = str(uuid.uuid4())
-            jobs.submit("p", request, "vocal.tune", {}, [source.artifact_id])
+            jobs.submit("p", request, "voice.tune", {}, [source.artifact_id])
             jobs.pool.shutdown(wait=True)
             result = jobs.status("p", request)
             self.assertEqual(result["state"], "completed")
             self.assertEqual(len(result["artifacts"]), 2)
-            again = jobs.submit("p", request, "vocal.tune", {}, [source.artifact_id])
+            again = jobs.submit("p", request, "voice.tune", {}, [source.artifact_id])
             self.assertEqual(result, again)
             self.assertEqual(len(calls), 1)
             with self.assertRaises(ValueError):
                 jobs.submit(
-                    "p", request, "vocal.tune", {"strength": 1}, [source.artifact_id]
+                    "p", request, "voice.tune", {"strength": 1}, [source.artifact_id]
                 )
             with self.assertRaises(ArtifactNotFound):
                 jobs.submit(
-                    "other", str(uuid.uuid4()), "vocal.tune", {}, [source.artifact_id]
+                    "other", str(uuid.uuid4()), "voice.tune", {}, [source.artifact_id]
                 )
             with self.assertRaises(ValueError):
                 jobs.status("other", request)

@@ -17,6 +17,14 @@ from .artifacts import require_project_id
 from .results import structured_result
 
 
+BACKEND_OPERATIONS = {
+    "voice.tune": "vocal.tune",
+    "voice.process": "vocal.process",
+    "music.instrument_render": "instrument.render",
+    "mix.render": "mix.render",
+}
+
+
 class ProductionJobs:
     def __init__(self, executor, emit):
         self.executor = executor
@@ -133,7 +141,7 @@ class ProductionJobs:
                     "Production",
                     self.executor.service_urls.mixer + "/v1/production/render",
                     data={
-                        "operation": job["operation"],
+                        "operation": BACKEND_OPERATIONS[job["operation"]],
                         "config_json": json.dumps(job["config"], allow_nan=False),
                     },
                     files=files or [("placeholder", (None, ""))],
@@ -206,34 +214,36 @@ class ProductionJobs:
 def register(mcp, executor, emit):
     jobs = ProductionJobs(executor, emit)
 
-    @mcp.tool(name="production.capabilities")
+    @mcp.tool(name="music.production_capabilities")
     def production_capabilities():
-        """Read live JSON Schemas and limits for vocal.tune/process, instrument.render and mix.render. Config must match the selected schema."""
-        return structured_result(
-            executor._get_json(
-                "Production",
-                executor.service_urls.mixer + "/v1/production/capabilities",
-            )
+        """Read live JSON Schemas and limits for voice.tune/process, music.instrument_render and mix.render. Config must match the selected schema."""
+        result = executor._get_json(
+            "Production", executor.service_urls.mixer + "/v1/production/capabilities"
         )
+        result["schemas"] = {
+            public: result["schemas"][backend]
+            for public, backend in BACKEND_OPERATIONS.items()
+        }
+        return structured_result(result)
 
-    @mcp.tool(name="production.status")
+    @mcp.tool(name="music.production_status")
     def production_status(project_id: str, request_id: str):
         """Recover a production request and its immutable artifacts. Poll the original request_id; never resubmit unknown work."""
         return structured_result(jobs.status(project_id, request_id))
 
-    @mcp.tool(name="production.cancel")
+    @mcp.tool(name="music.production_cancel")
     def production_cancel(project_id: str, request_id: str):
         """Cancel queued work or suppress output publication after an active bounded DSP call returns. Cancelling is not yet cancelled."""
         return structured_result(jobs.status(project_id, request_id, cancel=True))
 
-    @mcp.tool(name="vocal.tune")
+    @mcp.tool(name="voice.tune")
     def vocal_tune(project_id: str, request_id: str, audio_asset_id: str, config: dict):
-        """Queue independent WORLD pitch correction. Read production.capabilities for config, including target notes, scale, retune speed and formants."""
+        """Queue independent WORLD pitch correction. Read music.production_capabilities for config, including target notes, scale, retune speed and formants."""
         return structured_result(
-            jobs.submit(project_id, request_id, "vocal.tune", config, [audio_asset_id])
+            jobs.submit(project_id, request_id, "voice.tune", config, [audio_asset_id])
         )
 
-    @mcp.tool(name="vocal.process")
+    @mcp.tool(name="voice.process")
     def vocal_process(
         project_id: str,
         request_id: str,
@@ -241,29 +251,29 @@ def register(mcp, executor, emit):
         config: dict,
         carrier_asset_id: str | None = None,
     ):
-        """Queue an ordered vocal effect chain. Vocoder requires a separate carrier artifact; no reference-singer cloning. Discover config via production.capabilities."""
+        """Queue an ordered vocal effect chain. Vocoder requires a separate carrier artifact; no reference-singer cloning. Discover config via music.production_capabilities."""
         return structured_result(
             jobs.submit(
                 project_id,
                 request_id,
-                "vocal.process",
+                "voice.process",
                 config,
                 [audio_asset_id] + ([carrier_asset_id] if carrier_asset_id else []),
             )
         )
 
-    @mcp.tool(name="instrument.render")
+    @mcp.tool(name="music.instrument_render")
     def instrument_render(project_id: str, request_id: str, config: dict):
-        """Queue a reproducible original synth stem from timed MIDI-number notes, envelope, waveform and filter controls. Read production.capabilities first."""
+        """Queue a reproducible original synth stem from timed MIDI-number notes, envelope, waveform and filter controls. Read music.production_capabilities first."""
         return structured_result(
-            jobs.submit(project_id, request_id, "instrument.render", config, [])
+            jobs.submit(project_id, request_id, "music.instrument_render", config, [])
         )
 
     @mcp.tool(name="mix.render")
     def mix_render(
         project_id: str, request_id: str, audio_asset_ids: list[str], config: dict
     ):
-        """Queue explicit multitrack premix without automatic mastering or vocal processing. Config tracks match artifact order; read production.capabilities."""
+        """Queue explicit multitrack premix without automatic mastering or vocal processing. Config tracks match artifact order; read music.production_capabilities."""
         return structured_result(
             jobs.submit(project_id, request_id, "mix.render", config, audio_asset_ids)
         )
