@@ -16,6 +16,7 @@ from verdantflare_music_mcp.executor import (
     ServiceURLs,
     extract_expected_zip,
     preserve_pcm_outside_region,
+    open_pcm_wav,
     validate_aligned_lrc,
 )
 
@@ -29,6 +30,14 @@ def wav_bytes(seconds: float, sample_rate: int = 32000, sample_value: int = 1, w
         frame = sample_value.to_bytes(width, "little", signed=True) * 2
         audio.writeframes(frame * round(seconds * sample_rate))
     return output.getvalue()
+
+
+def extensible_wav(pcm: bytes) -> bytes:
+    # FFmpeg stereo PCM24 WAVEFORMATEXTENSIBLE layout (including channel mask).
+    fmt = pcm[20:36]
+    extension = bytes.fromhex("16001800030000000100000000001000800000aa00389b71")
+    body = b"WAVEfmt " + (40).to_bytes(4, "little") + b"\xfe\xff" + fmt[2:] + extension + pcm[36:]
+    return b"RIFF" + len(body).to_bytes(4, "little") + body
 
 
 def mono_wav_bytes(seconds: float, sample_rate: int = 40000) -> bytes:
@@ -376,7 +385,7 @@ class ExecutorTest(unittest.TestCase):
                 operation="music.generate",
                 filename="Demo_Selected.wav",
                 media_type="audio/wav",
-                payload=wav_bytes(30, width=3),
+                payload=extensible_wav(wav_bytes(30, width=3)),
             )
             executor = MusicExecutor(
                 store,
@@ -438,6 +447,16 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(int.from_bytes(samples[600:603], "little", signed=True), round(1234567 * .9 - 256000 * .1))
         self.assertEqual(int.from_bytes(samples[603:606], "little", signed=True), round(-2345678 * .9 - 256000 * .1))
         self.assertEqual(samples[1794:1800], frame)
+
+    def test_extensible_pcm_rejects_float_and_mismatched_valid_bits(self) -> None:
+        payload = extensible_wav(wav_bytes(1, width=3))
+        with open_pcm_wav(payload) as audio:
+            self.assertEqual(audio.getsampwidth(), 3)
+            self.assertEqual(audio.readframes(1), b"\x01\x00\x00" * 2)
+        for position, replacement in [(44, b"\x03"), (38, b"\x10")]:
+            corrupt = payload[:position] + replacement + payload[position + 1:]
+            with self.assertRaises(wave.Error):
+                open_pcm_wav(corrupt)
 
     def test_redraw_requires_configured_editor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

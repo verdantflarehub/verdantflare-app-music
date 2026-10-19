@@ -152,9 +152,35 @@ class ServiceURLs:
         )
 
 
+def open_pcm_wav(payload: bytes):
+    """Read integer WAVE_FORMAT_EXTENSIBLE from FFmpeg on Python 3.11.
+
+    Only normalize the PCM format tag for stdlib wave; never rewrite sample bytes
+    or accept IEEE float / ambiguous valid-bit containers as integer PCM.
+    """
+    if payload[:4] == b"RIFF" and payload[8:12] == b"WAVE":
+        offset = 12
+        while offset + 8 <= len(payload):
+            length = int.from_bytes(payload[offset + 4:offset + 8], "little")
+            end = offset + 8 + length
+            if end > len(payload):
+                raise wave.Error("truncated WAV chunk")
+            if payload[offset:offset + 4] == b"fmt ":
+                fmt = payload[offset + 8:end]
+                if fmt[:2] == b"\xfe\xff":
+                    if (len(fmt) < 40 or int.from_bytes(fmt[16:18], "little") < 22
+                            or fmt[24:40] != bytes.fromhex("0100000000001000800000aa00389b71")
+                            or fmt[18:20] != fmt[14:16]):
+                        raise wave.Error("unsupported extensible PCM format")
+                    payload = payload[:offset + 8] + b"\x01\x00" + payload[offset + 10:]
+                break
+            offset = end + (length & 1)
+    return wave.open(io.BytesIO(payload), "rb")
+
+
 def validate_pcm_wav(payload: bytes) -> None:
     try:
-        with wave.open(io.BytesIO(payload), "rb") as source:
+        with open_pcm_wav(payload) as source:
             if source.getcomptype() != "NONE":
                 raise ExecutionError("Music3 returned a compressed WAV")
             if source.getframerate() <= 0 or source.getnframes() <= 0:
@@ -172,10 +198,10 @@ def preserve_pcm_outside_region(
 ) -> bytes:
     """Insert a conditioned repaint while keeping every source frame outside the mask unchanged."""
     try:
-        with wave.open(io.BytesIO(source_payload), "rb") as source:
+        with open_pcm_wav(source_payload) as source:
             source_params = source.getparams()
             source_frames = source.readframes(source.getnframes())
-        with wave.open(io.BytesIO(edited_payload), "rb") as edited:
+        with open_pcm_wav(edited_payload) as edited:
             edited_params = edited.getparams()
             edited_frames = edited.readframes(edited.getnframes())
     except (EOFError, wave.Error) as error:
@@ -1014,7 +1040,7 @@ class MusicExecutor:
 
         source, audio = self.store.read(audio_asset_id, project)
         try:
-            with wave.open(io.BytesIO(audio), "rb") as source_audio:
+            with open_pcm_wav(audio) as source_audio:
                 if (
                     source_audio.getcomptype() != "NONE"
                     or source_audio.getsampwidth() not in {2, 3}
