@@ -1,11 +1,14 @@
 [project]
 name = "verdantflare-music-audio-mixer-api"
-version = "0.1.2"
+version = "0.2.0"
 description = "VerdantFlare music-audio-mixer-api service"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.116.1",
   "numpy==2.2.6",
+  "scipy==1.15.3",
+  "pyworld==0.3.5",
+  "setuptools==78.1.0",
   "pedalboard==0.9.17",
   "python-multipart==0.0.20",
   "soundfile==0.13.1",

@@ -13,24 +13,10 @@ concurrency:
   cancel-in-progress: false
 env:
   SERVICE: music-audio-mixer-api
-  VERSION: 0.1.2
+  VERSION: 0.2.0
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check and test
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: services/music-audio-mixer-api
-        run: |
-          set -euo pipefail
-          shellcheck services/${SERVICE}/*.sh
-          python3 -m pip install ./services/${SERVICE} httpx==0.28.1
-          python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
-    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

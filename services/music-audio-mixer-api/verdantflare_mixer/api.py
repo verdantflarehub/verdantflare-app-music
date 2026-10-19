@@ -31,7 +31,9 @@ def _write_upload(upload: UploadFile, destination: Path, maximum: int) -> None:
         while chunk := upload.file.read(1024 * 1024):
             total += len(chunk)
             if total > maximum:
-                raise HTTPException(status_code=413, detail="uploaded file exceeds limit")
+                raise HTTPException(
+                    status_code=413, detail="uploaded file exceeds limit"
+                )
             output.write(chunk)
     if total == 0:
         raise HTTPException(status_code=422, detail="uploaded file is empty")
@@ -51,7 +53,11 @@ def master_audio(
 ) -> Response:
     TEMP_ROOT.mkdir(parents=True, exist_ok=True)
     parts = additional_vocals or []
-    gains = additional_vocal_gains_db if additional_vocal_gains_db is not None else [-3.0] * len(parts)
+    gains = (
+        additional_vocal_gains_db
+        if additional_vocal_gains_db is not None
+        else [-3.0] * len(parts)
+    )
     try:
         validate_arrangement(vocal_mode, len(parts), gains)
     except ValueError as error:
@@ -103,3 +109,46 @@ def master_audio(
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="Final_Song.zip"'},
     )
+
+
+@app.get("/v1/production/capabilities")
+def production_capabilities():
+    from .production import capabilities
+
+    return capabilities()
+
+
+@app.post("/v1/production/render")
+def production_render(
+    operation: Annotated[str, Form()],
+    config_json: Annotated[str, Form(max_length=512000)],
+    audio: Annotated[list[UploadFile] | None, File()] = None,
+) -> Response:
+    import json
+    from .production import MODELS, render
+    from pydantic import ValidationError
+
+    uploads = audio or []
+    if operation not in MODELS or len(uploads) > 16:
+        raise HTTPException(422, "unsupported operation or input count")
+    TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as directory:
+            root = Path(directory)
+            paths = []
+            total = 0
+            for index, upload in enumerate(uploads):
+                path = root / f"input-{index}.audio"
+                _write_upload(upload, path, MAX_AUDIO_BYTES)
+                total += path.stat().st_size
+                if total > MAX_AUDIO_BYTES:
+                    raise HTTPException(413, "aggregate uploads exceed limit")
+                paths.append(path)
+            payload = render(operation, json.loads(config_json), paths)
+    except (ValueError, ValidationError) as error:
+        # No paths, audio bytes or credentials in validation responses.
+        raise HTTPException(422, "invalid production configuration or audio") from error
+    finally:
+        for upload in uploads:
+            upload.file.close()
+    return Response(payload, media_type="application/zip")

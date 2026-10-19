@@ -4,15 +4,18 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music Audio Mixer API"
-LABEL org.opencontainers.image.version="0.1.2"
+LABEL org.opencontainers.image.version="0.2.0"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 g++ \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
-    && pip check
+    && pip check \
+    && apt-get purge -y g++ \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 COPY NOTICE.upstream.md /usr/share/licenses/music-audio-mixer-api/NOTICE.upstream.md
 COPY verdantflare_mixer ./verdantflare_mixer
 COPY entrypoint.sh smoke-test.sh /usr/local/bin/

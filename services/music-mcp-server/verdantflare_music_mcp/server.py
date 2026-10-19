@@ -458,6 +458,10 @@ def _extract_tools_schema() -> list[dict[str, Any]]:
     return items
 
 
+from .production import register as register_production
+
+production_jobs = register_production(mcp, executor, _emit_artifact_result)
+
 TOOLS_SCHEMA = _extract_tools_schema()
 registry = EtcdRegistry(domain="music", tools=TOOLS_SCHEMA, version=__version__)
 dashboard = MusicDashboard(

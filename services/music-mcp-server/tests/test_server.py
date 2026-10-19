@@ -73,6 +73,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(
             {tool.name for tool in tools},
             {
+                "production.capabilities",
+                "production.status",
+                "production.cancel",
+                "vocal.tune",
+                "vocal.process",
+                "instrument.render",
+                "mix.render",
                 "workflow.preflight",
                 "asset.import",
                 "music.generate",
@@ -93,6 +100,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(
             properties,
             {
+                "production.capabilities": set(),
+                "production.status": {"project_id", "request_id"},
+                "production.cancel": {"project_id", "request_id"},
+                "vocal.tune": {"project_id", "request_id", "audio_asset_id", "config"},
+                "vocal.process": {"project_id", "request_id", "audio_asset_id", "carrier_asset_id", "config"},
+                "instrument.render": {"project_id", "request_id", "config"},
+                "mix.render": {"project_id", "request_id", "audio_asset_ids", "config"},
                 "workflow.preflight": {
                     "workflow",
                     "voice_source",
