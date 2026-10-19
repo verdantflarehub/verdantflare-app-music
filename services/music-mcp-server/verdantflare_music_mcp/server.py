@@ -3,6 +3,8 @@ from __future__ import annotations
 import contextlib
 import hmac
 import os
+import threading
+import time
 from typing import Any
 
 from mcp import types
@@ -28,6 +30,19 @@ store = ArtifactStore.from_environment()
 task_store = TaskStore(store)
 executor = MusicExecutor(store, ServiceURLs.from_environment())
 mcp = MCPServer("VerdantFlare Music")
+
+
+def _gpu_idle_loop() -> None:
+    while True:
+        time.sleep(30)
+        try:
+            executor.gpu.maybe_scale_down()
+        except Exception:
+            pass
+
+
+if executor.gpu.enabled:
+    threading.Thread(target=_gpu_idle_loop, name="music-gpu-idle", daemon=True).start()
 
 
 def _emit_artifact_result(

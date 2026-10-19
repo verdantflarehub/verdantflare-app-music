@@ -24,6 +24,7 @@ from .artifacts import (
     require_filename,
     require_project_id,
 )
+from .gpu_lease import GpuCoordinator, LeaseBusy
 from .duet import DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice, pcm16_wav, preview_duet, read_duet_plan, validate_vocal_isolation
 
 
@@ -355,6 +356,7 @@ class MusicExecutor:
         service_urls: ServiceURLs,
         client: httpx.Client | None = None,
         asset_import_origins: frozenset[str] | None = None,
+        gpu: GpuCoordinator | None = None,
     ) -> None:
         self.store = store
         self.service_urls = service_urls
@@ -362,6 +364,7 @@ class MusicExecutor:
             timeout=httpx.Timeout(connect=10.0, read=3600.0, write=600.0, pool=10.0),
             follow_redirects=False,
         )
+        self.gpu = gpu if gpu is not None else GpuCoordinator.from_environment()
         self.asset_import_origins = (
             parse_asset_import_origins(os.environ.get("MUSIC_ASSET_IMPORT_ORIGINS", ""))
             if asset_import_origins is None
@@ -408,6 +411,65 @@ class MusicExecutor:
         if not isinstance(payload, dict):
             raise ExecutionError(f"{service} returned invalid JSON")
         return payload
+
+    def _probe_health(self, service: str, url: str, **kwargs: object) -> dict[str, object]:
+        try:
+            response = self.client.get(f"{url}/health", **kwargs)
+        except httpx.TimeoutException:
+            return {"service": service, "ready": False, "reason": "timeout"}
+        except httpx.ConnectError:
+            return self._connect_failure(service)
+        except httpx.HTTPError:
+            return {"service": service, "ready": False, "reason": "connect_failed"}
+        if response.status_code < 200 or response.status_code >= 300:
+            return {
+                "service": service,
+                "ready": False,
+                "reason": "http_status",
+                "http_status": response.status_code,
+            }
+        try:
+            payload = response.json()
+        except json.JSONDecodeError:
+            return {"service": service, "ready": False, "reason": "invalid_response"}
+        if not isinstance(payload, dict):
+            return {"service": service, "ready": False, "reason": "invalid_response"}
+        ready = payload.get("status") not in {"unavailable", "error", "failed"}
+        return {"service": service, "ready": ready, "reason": "ok" if ready else "health_not_ready"}
+
+    def _connect_failure(self, service: str) -> dict[str, object]:
+        if self.gpu.enabled and service == "music3":
+            try:
+                holder = self.gpu.peer_holder()
+                if holder:
+                    return {
+                        "service": service,
+                        "ready": False,
+                        "reason": "waiting_gpu_lease",
+                        "holder": holder,
+                        "wake_on_task": True,
+                    }
+                if self.gpu.replicas() == 0:
+                    return {
+                        "service": service,
+                        "ready": False,
+                        "reason": "scaled_to_zero",
+                        "wake_on_task": True,
+                    }
+            except Exception:
+                pass
+        return {"service": service, "ready": False, "reason": "connect_failed"}
+
+    def _wait_music3(self) -> None:
+        deadline = time.monotonic() + self.gpu.ready_seconds
+        last = "connect_failed"
+        while time.monotonic() < deadline:
+            check = self._probe_health("music3", self.service_urls.music3)
+            if check["ready"]:
+                return
+            last = str(check["reason"])
+            time.sleep(2)
+        raise ExecutionError(f"music3 not ready: {last}")
 
     def _music_editor_headers(self) -> dict[str, str]:
         token = self.service_urls.music_editor_bearer_token
@@ -484,26 +546,19 @@ class MusicExecutor:
                 checks.append({"service": service, "ready": False, "reason": "not_configured"})
                 blocking_conditions.append(f"{service} is not configured")
                 continue
-            try:
-                kwargs = (
-                    {"headers": self._music_editor_headers()}
-                    if service == "music_editor"
-                    else {}
-                )
-                payload = self._get_json(service, f"{url}/health", **kwargs)
-                ready = payload.get("status") not in {"unavailable", "error", "failed"}
-                checks.append(
-                    {
-                        "service": service,
-                        "ready": ready,
-                        "reason": "ok" if ready else "health_not_ready",
-                    }
-                )
-                if not ready:
-                    blocking_conditions.append(f"{service} health check is not ready")
-            except ExecutionError:
-                checks.append({"service": service, "ready": False, "reason": "health_request_failed"})
-                blocking_conditions.append(f"{service} health check failed")
+            kwargs = (
+                {"headers": self._music_editor_headers()}
+                if service == "music_editor"
+                else {}
+            )
+            check = self._probe_health(service, url, **kwargs)
+            checks.append(check)
+            if not check["ready"] and not check.get("wake_on_task"):
+                reason = check["reason"]
+                if reason == "http_status":
+                    blocking_conditions.append(f"{service} health check returned HTTP {check['http_status']}")
+                else:
+                    blocking_conditions.append(f"{service} health check failed: {reason}")
 
         voice_model: dict[str, object] | None = None
         if model_id is not None:
@@ -552,10 +607,16 @@ class MusicExecutor:
                     pass
                 if not duet_model_ready:
                     blocking_conditions.append("ACE-Step duet base model is not loaded")
+        backend_ready = bool(checks) and all(check["ready"] is True for check in checks)
         return {
             "status": "ready" if not blocking_conditions else "blocked",
             "workflow": workflow,
             "voice_source": voice_source,
+            "layers": {
+                "tool_registered": True,
+                "orchestration_alive": self.gpu.api_ok(),
+                "backend_ready": backend_ready,
+            },
             "checks": checks,
             "voice_model": voice_model,
             "local_redraw": {
@@ -880,19 +941,23 @@ class MusicExecutor:
             raise ValueError("max_duration_seconds must be between 1 and 300")
 
         max_new_tokens = math.ceil(max_duration_seconds * 25)
-        raw = self._post(
-            "Music3",
-            f"{self.service_urls.music3}/v1/audio/speech",
-            json={
-                "model": "MiniMaxAI/MiniMax-Music3",
-                "input": lyrics,
-                "instructions": instructions,
-                "seed": seed,
-                "max_new_tokens": max_new_tokens,
-                "response_format": "wav",
-                "stream": False,
-            },
-        )
+        body = {
+            "model": "MiniMaxAI/MiniMax-Music3",
+            "input": lyrics,
+            "instructions": instructions,
+            "seed": seed,
+            "max_new_tokens": max_new_tokens,
+            "response_format": "wav",
+            "stream": False,
+        }
+        try:
+            with self.gpu.hold():
+                if self.gpu.enabled:
+                    self.gpu.scale_to(1)
+                    self._wait_music3()
+                raw = self._post("Music3", f"{self.service_urls.music3}/v1/audio/speech", json=body)
+        except LeaseBusy as error:
+            raise ExecutionError("waiting_gpu_lease") from error
         validate_pcm_wav(raw)
         return [
             self.store.create(
