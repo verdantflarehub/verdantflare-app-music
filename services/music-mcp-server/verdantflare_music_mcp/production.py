@@ -15,6 +15,7 @@ import zipfile
 
 from .artifacts import require_project_id
 from .results import structured_result
+from .review_rules import MUSIC_REVIEW_RULES
 
 
 BACKEND_OPERATIONS = {
@@ -262,14 +263,14 @@ def register(mcp, executor, emit):
             )
         )
 
-    @mcp.tool(name="music.instrument_render")
+    @mcp.tool(name="music.instrument_render", description='Render an original synth stem from timed notes. Read music.production_capabilities; derive timing and harmony from the actual source when adding to an existing performance.' + "\n\n" + MUSIC_REVIEW_RULES)
     def instrument_render(project_id: str, request_id: str, config: dict):
         """Queue a reproducible original synth stem from timed MIDI-number notes, envelope, waveform and filter controls. Read music.production_capabilities first."""
         return structured_result(
             jobs.submit(project_id, request_id, "music.instrument_render", config, [])
         )
 
-    @mcp.tool(name="mix.render")
+    @mcp.tool(name="mix.render", description='Queue explicit multitrack premix without automatic mastering or vocal processing. Config tracks match artifact order; read music.production_capabilities.' + "\n\n" + MUSIC_REVIEW_RULES)
     def mix_render(
         project_id: str, request_id: str, audio_asset_ids: list[str], config: dict
     ):

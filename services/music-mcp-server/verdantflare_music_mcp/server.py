@@ -17,6 +17,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 
 from . import __version__
+from .review_rules import MUSIC_REVIEW_RULES
 from .artifacts import ArtifactError, ArtifactNotFound, ArtifactRecord, ArtifactStore
 from .dashboard import MusicDashboard
 from .duet import DuetLine
@@ -64,7 +65,7 @@ def _emit_artifact_result(
     return artifact_result(store, project_id, operation, records)
 
 
-@mcp.tool(name="workflow.preflight")
+@mcp.tool(name="workflow.preflight", description='Check technical readiness, voice-model availability and redraw capability. Readiness is not musical approval.' + "\n\n" + MUSIC_REVIEW_RULES)
 def workflow_preflight(
     workflow: str,
     voice_source: str | None = None,
@@ -123,7 +124,7 @@ def asset_import(
     )
 
 
-@mcp.tool(name="music.generate")
+@mcp.tool(name="music.generate", description='Generate an original song from lyrics and instructions; this is not performance-preserving rearrangement.' + "\n\n" + MUSIC_REVIEW_RULES)
 def music_generate(
     project_id: str,
     lyrics: str,
@@ -256,7 +257,7 @@ def duet_preview(
     )
 
 
-@mcp.tool(name="music.redraw")
+@mcp.tool(name="music.redraw", description='Replace a bounded region through a conditioned-audio editor and return a full-song WAV. In-region harmony and rhythm are not guaranteed preserved.' + "\n\n" + MUSIC_REVIEW_RULES)
 def music_redraw(
     project_id: str,
     audio_asset_id: str,
@@ -406,7 +407,7 @@ def lyrics_align(
     )
 
 
-@mcp.tool(name="mix.master")
+@mcp.tool(name="mix.master", description='Mix and master approved project artifacts with aligned LRC text.' + "\n\n" + MUSIC_REVIEW_RULES)
 def mix_master(
     project_id: str,
     instrumental_asset_id: str,
