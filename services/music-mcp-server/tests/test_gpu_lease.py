@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from verdantflare_music_mcp.executor import ExecutionError, MusicExecutor, ServiceURLs
-from verdantflare_music_mcp.gpu_lease import GpuCoordinator, LeaseBusy, MemoryApi
+from verdantflare_music_mcp.gpu_lease import GpuCoordinator, LeaseBusy, MemoryApi, replicas_from_scale
 
 
 class Clock:
@@ -40,6 +40,9 @@ def coordinator(role: str, api: MemoryApi, clock: Clock, deployment: str | None 
 
 
 class GpuLeaseTest(unittest.TestCase):
+    def test_omitted_scale_replicas_means_zero(self) -> None:
+        self.assertEqual(replicas_from_scale({"spec": {}}), 0)
+        self.assertEqual(replicas_from_scale({"spec": {"replicas": 1}}), 1)
     def test_music_waits_for_h3_then_acquires_when_expired(self) -> None:
         api = MemoryApi()
         clock = Clock()
