@@ -182,8 +182,8 @@ def preserve_pcm_outside_region(
         raise ExecutionError("music redraw requires valid PCM WAV audio") from error
     if source_params.comptype != "NONE" or edited_params.comptype != "NONE":
         raise ExecutionError("music redraw requires uncompressed PCM WAV audio")
-    if source_params.sampwidth != 2:
-        raise ExecutionError("music redraw source must be 16-bit PCM WAV")
+    if source_params.sampwidth not in {2, 3}:
+        raise ExecutionError("music redraw source must be 16-bit or 24-bit PCM WAV")
     if source_params.nchannels not in {1, 2} or edited_params.nchannels not in {1, 2}:
         raise ExecutionError("music redraw supports mono or stereo WAV audio")
 
@@ -206,7 +206,9 @@ def preserve_pcm_outside_region(
             None,
         )
 
-    frame_bytes = source_params.sampwidth * source_params.nchannels
+    width = source_params.sampwidth
+    limit = 1 << (width * 8 - 1)
+    frame_bytes = width * source_params.nchannels
     source_frame_count = len(source_frames) // frame_bytes
     edited_frame_count = len(edited_frames) // frame_bytes
     start_frame = round(start_seconds * source_params.framerate)
@@ -230,14 +232,14 @@ def preserve_pcm_outside_region(
                 (frame_index, left_edit_weight),
                 (end_frame - start_frame - fade_frames + frame_index, right_edit_weight),
             ):
-                offset = relative_frame * frame_bytes + channel * 2
+                offset = relative_frame * frame_bytes + channel * width
                 source_sample = int.from_bytes(
-                    source_region[offset : offset + 2], "little", signed=True
+                    source_region[offset : offset + width], "little", signed=True
                 )
-                edited_sample = int.from_bytes(region[offset : offset + 2], "little", signed=True)
+                edited_sample = int.from_bytes(region[offset : offset + width], "little", signed=True)
                 mixed = round(source_sample * (1.0 - edit_weight) + edited_sample * edit_weight)
-                region[offset : offset + 2] = max(-32768, min(32767, mixed)).to_bytes(
-                    2, "little", signed=True
+                region[offset : offset + width] = max(-limit, min(limit - 1, mixed)).to_bytes(
+                    width, "little", signed=True
                 )
 
     output = io.BytesIO()
@@ -1015,11 +1017,11 @@ class MusicExecutor:
             with wave.open(io.BytesIO(audio), "rb") as source_audio:
                 if (
                     source_audio.getcomptype() != "NONE"
-                    or source_audio.getsampwidth() != 2
+                    or source_audio.getsampwidth() not in {2, 3}
                     or source_audio.getnchannels() not in {1, 2}
                 ):
                     raise ExecutionError(
-                        "music redraw source must be mono or stereo 16-bit PCM WAV"
+                        "music redraw source must be mono or stereo 16-bit or 24-bit PCM WAV"
                     )
                 source_duration = source_audio.getnframes() / source_audio.getframerate()
         except (EOFError, wave.Error) as error:

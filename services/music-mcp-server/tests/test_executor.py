@@ -15,17 +15,18 @@ from verdantflare_music_mcp.executor import (
     MusicExecutor,
     ServiceURLs,
     extract_expected_zip,
+    preserve_pcm_outside_region,
     validate_aligned_lrc,
 )
 
 
-def wav_bytes(seconds: float, sample_rate: int = 32000, sample_value: int = 1) -> bytes:
+def wav_bytes(seconds: float, sample_rate: int = 32000, sample_value: int = 1, width: int = 2) -> bytes:
     output = io.BytesIO()
     with wave.open(output, "wb") as audio:
         audio.setnchannels(2)
-        audio.setsampwidth(2)
+        audio.setsampwidth(width)
         audio.setframerate(sample_rate)
-        frame = sample_value.to_bytes(2, "little", signed=True) * 2
+        frame = sample_value.to_bytes(width, "little", signed=True) * 2
         audio.writeframes(frame * round(seconds * sample_rate))
     return output.getvalue()
 
@@ -375,7 +376,7 @@ class ExecutorTest(unittest.TestCase):
                 operation="music.generate",
                 filename="Demo_Selected.wav",
                 media_type="audio/wav",
-                payload=wav_bytes(30),
+                payload=wav_bytes(30, width=3),
             )
             executor = MusicExecutor(
                 store,
@@ -409,8 +410,8 @@ class ExecutorTest(unittest.TestCase):
                 self.assertEqual(result_audio.getframerate(), 32000)
                 self.assertEqual(result_audio.getnframes(), 30 * 32000)
                 result_frames = result_audio.readframes(result_audio.getnframes())
-            source_frames = b"\x01\x00\x01\x00" * (30 * 32000)
-            frame_bytes = 4
+            source_frames = b"\x01\x00\x00\x01\x00\x00" * (30 * 32000)
+            frame_bytes = 6
             self.assertEqual(result_frames[: 12 * 32000 * frame_bytes], source_frames[: 12 * 32000 * frame_bytes])
             self.assertEqual(result_frames[20 * 32000 * frame_bytes :], source_frames[20 * 32000 * frame_bytes :])
             self.assertNotEqual(
@@ -418,6 +419,25 @@ class ExecutorTest(unittest.TestCase):
                 source_frames[13 * 32000 * frame_bytes : 19 * 32000 * frame_bytes],
             )
             self.assertEqual(requested_paths, ["/release_task", "/query_result", "/v1/audio"])
+
+    def test_redraw_24bit_stem_preserves_outside_frames_and_crossfade_channels(self) -> None:
+        source = io.BytesIO()
+        # Distinct signed channels and nonzero low bytes detect 16-bit truncation.
+        frame = (1234567).to_bytes(3, "little", signed=True) + (-2345678).to_bytes(3, "little", signed=True)
+        with wave.open(source, "wb") as audio:
+            audio.setparams((2, 3, 100, 0, "NONE", "not compressed"))
+            audio.writeframes(frame * 400)
+        edited = wav_bytes(4, sample_rate=100, sample_value=-1000)
+        output = preserve_pcm_outside_region(source.getvalue(), edited, 1, 3, 0.1)
+        with wave.open(io.BytesIO(output), "rb") as audio:
+            self.assertEqual((audio.getsampwidth(), audio.getnchannels(), audio.getframerate(), audio.getnframes()), (3, 2, 100, 400))
+            samples = audio.readframes(400)
+        self.assertEqual(samples[:600], frame * 100)
+        self.assertEqual(samples[1800:], frame * 100)
+        self.assertEqual(samples[1200:1206], (-256000).to_bytes(3, "little", signed=True) * 2)
+        self.assertEqual(int.from_bytes(samples[600:603], "little", signed=True), round(1234567 * .9 - 256000 * .1))
+        self.assertEqual(int.from_bytes(samples[603:606], "little", signed=True), round(-2345678 * .9 - 256000 * .1))
+        self.assertEqual(samples[1794:1800], frame)
 
     def test_redraw_requires_configured_editor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
