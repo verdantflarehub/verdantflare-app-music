@@ -27,6 +27,19 @@ class ConditioningTest(unittest.TestCase):
             with self.subTest(caption=caption[:10]), self.assertRaisesRegex(ValueError, "token budget exceeded"):
                 conditioning.check(caption, lyrics, "ja")
 
+    def test_budget_inspection_returns_actionable_rejection_without_inference(self):
+        result = conditioning.inspect_budget("rhythm " * 300, "[Verse]\nあとひと駅", "ja")
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["code"], "conditioning_budget_exceeded")
+        self.assertGreater(result["caption_tokens"], result["caption_budget"])
+        self.assertEqual(result["vocal_language"], "ja")
+        self.assertFalse(result["truncated"])
+        # Internal tokenizer failures must not be turned into successful inspection.
+        from unittest.mock import patch
+        with patch.object(conditioning, "tokenizer", side_effect=RuntimeError("missing tokenizer")):
+            with self.assertRaises(RuntimeError):
+                conditioning.inspect_budget("repair", "", "ja")
+
     def test_invalid_language_and_template_override_rejected(self):
         for language in ("Japanese", "ja\n# Lyric", "", None):
             with self.subTest(language=language), self.assertRaises(ValueError):

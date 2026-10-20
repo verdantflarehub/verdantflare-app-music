@@ -17,7 +17,7 @@ from .artifacts import require_project_id
 from .results import structured_result
 from .review_rules import MUSIC_REVIEW_RULES
 from . import continuation
-from .conditioning import check as check_conditioning
+from .conditioning import inspect_budget
 
 
 BACKEND_OPERATIONS = {
@@ -283,8 +283,8 @@ def register(mcp, executor, emit):
 
     @mcp.tool(name="music.conditioning_check")
     def conditioning_check(instructions: str, lyrics: str = "", vocal_language: str = "unknown"):
-        """Validate ACE-Step local-edit conditioning without inference. Caption budget 192 tokens, formatted lyrics 1800; no silent truncation. Set ja for Japanese. This is not the Music3 generation budget."""
-        return structured_result(check_conditioning(instructions, lyrics, vocal_language))
+        """Validate ACE-Step local-edit conditioning without inference. Returns valid plus token counts and limits; valid=false requires explicit shortening before editing. Caption budget 192 tokens, formatted lyrics 1800; no silent truncation. Set ja for Japanese. This is not the Music3 generation budget."""
+        return structured_result(inspect_budget(instructions, lyrics, vocal_language))
 
     @mcp.tool(name="voice.tune")
     def vocal_tune(project_id: str, request_id: str, audio_asset_id: str, config: dict):

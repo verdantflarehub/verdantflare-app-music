@@ -225,6 +225,15 @@ class ServerTest(unittest.TestCase):
             self.assertEqual(result.structured_content["artifacts"][0]["artifact_id"], record.artifact_id)
             self.assertTrue(any(isinstance(item, types.ResourceLink) for item in result.content))
 
+    def test_conditioning_tool_returns_budget_feedback_not_opaque_error(self) -> None:
+        result = asyncio.run(mcp.call_tool("music.conditioning_check", {
+            "instructions": "rhythm " * 300, "lyrics": "[Verse]\nあとひと駅", "vocal_language": "ja",
+        }))
+        self.assertFalse(result.structured_content["valid"])
+        self.assertEqual(result.structured_content["code"], "conditioning_budget_exceeded")
+        self.assertGreater(result.structured_content["caption_tokens"], 192)
+        self.assertIn('"caption_tokens"', result.content[0].text)
+
     def test_bearer_auth_and_artifact_download(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = ArtifactStore(Path(directory))

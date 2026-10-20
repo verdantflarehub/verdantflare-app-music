@@ -12,6 +12,17 @@ CAPTION_BUDGET = 192  # upstream 256, with room for instruction and metadata
 LYRICS_BUDGET = 1800  # upstream 2048, including the language header below
 
 
+class BudgetExceeded(ValueError):
+    """Safe structured input feedback, distinct from internal service errors."""
+
+    def __init__(self, report):
+        self.report = report
+        super().__init__(
+            f"conditioning token budget exceeded: caption {report['caption_tokens']}/{CAPTION_BUDGET}, "
+            f"lyrics {report['lyrics_tokens']}/{LYRICS_BUDGET}; shorten text explicitly; nothing submitted"
+        )
+
+
 @lru_cache(maxsize=1)
 def tokenizer():
     from tokenizers import Tokenizer
@@ -41,15 +52,23 @@ def check(instructions, lyrics, vocal_language="unknown"):
     caption_tokens = len(enc.encode(instructions, add_special_tokens=False).ids)
     lyric_input = f"# Languages\n{vocal_language}\n\n# Lyric\n{lyrics}<|endoftext|>"
     lyrics_tokens = len(enc.encode(lyric_input, add_special_tokens=False).ids)
+    report = {"caption_tokens": caption_tokens, "caption_budget": CAPTION_BUDGET,
+              "lyrics_tokens": lyrics_tokens, "lyrics_budget": LYRICS_BUDGET,
+              "vocal_language": vocal_language, "tokenizer_sha256": TOKENIZER_SHA256,
+              "truncated": False, "valid": True}
     if caption_tokens > CAPTION_BUDGET or lyrics_tokens > LYRICS_BUDGET:
-        raise ValueError(
-            f"conditioning token budget exceeded: caption {caption_tokens}/{CAPTION_BUDGET}, "
-            f"lyrics {lyrics_tokens}/{LYRICS_BUDGET}; shorten text explicitly; nothing submitted"
-        )
-    return {"caption_tokens": caption_tokens, "caption_budget": CAPTION_BUDGET,
-            "lyrics_tokens": lyrics_tokens, "lyrics_budget": LYRICS_BUDGET,
-            "vocal_language": vocal_language, "tokenizer_sha256": TOKENIZER_SHA256,
-            "truncated": False}
+        report.update(valid=False, code="conditioning_budget_exceeded",
+                      action="Shorten the supplied text explicitly before local editing; no inference was submitted.")
+        raise BudgetExceeded(report)
+    return report
+
+
+def inspect_budget(instructions, lyrics, vocal_language="unknown"):
+    """Public preflight result; expected over-budget input is not an opaque tool failure."""
+    try:
+        return check(instructions, lyrics, vocal_language)
+    except BudgetExceeded as error:
+        return error.report
 
 
 if __name__ == "__main__":
