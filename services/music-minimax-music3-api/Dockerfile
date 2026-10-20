@@ -8,7 +8,7 @@ ARG UCX_COMMIT=d8e50df6651b9ea5b76f23aee0aefbf053a4137a
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare MiniMax Music 3 API"
-LABEL org.opencontainers.image.version="0.1.3"
+LABEL org.opencontainers.image.version="0.1.4"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-Music3-Community"
 
 # SGLang-Omni uses UCX for CUDA-aware tensor transport between pipeline stages.
@@ -49,8 +49,8 @@ RUN python3 -m py_compile \
 # capture and prefix conditioning remain disabled unless explicitly configured.
 COPY patches/ /opt/music3-patches/
 RUN python3 /opt/music3-patches/install.py \
-    /usr/local/lib/python3.12/dist-packages/sglang_omni/models/minimax_music3; \
-    python3 -m compileall -q /opt/music3-patches
+    /usr/local/lib/python3.12/dist-packages/sglang_omni/models/minimax_music3 \
+    && python3 -m compileall -q /opt/music3-patches
 
 COPY entrypoint.sh /usr/local/bin/music-minimax-music3-entrypoint
 COPY LICENSE.minimax-music3 /usr/share/licenses/music-minimax-music3-api/LICENSE.minimax-music3
