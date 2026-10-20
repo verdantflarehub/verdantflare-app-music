@@ -8,3 +8,5 @@ This image uses the following upstream projects without modifying their public s
 - UCX commit `d8e50df6651b9ea5b76f23aee0aefbf053a4137a`, under the BSD 3-Clause License.
 
 The installed Python packages and base image retain their own license files and attribution notices.
+
+The local runner adapter preserves the pinned upstream module, checks its SHA-256 at build time, and adds opt-in research trajectory capture and single-request prefix experiments. These do not add a public reference-audio or continuation API. The scheduler patch keeps CFG pairs atomic.
