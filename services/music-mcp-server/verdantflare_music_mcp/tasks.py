@@ -21,6 +21,7 @@ OPERATION_WORKFLOW_MAP: dict[str, tuple[str, str, str, str, str, str]] = {
     "music.instrument_render": ("full_song", "合成器分轨", "VF Synth", "SYNTH", "乐器渲染", "48kHz"),
     "mix.render": ("full_song", "多轨预混", "Production DSP", "MIX", "预混", "48kHz"),
     "music.generate": ("generate", "单曲生成", "MiniMax Music 3", "T2M", "文生音乐", "32kHz"),
+    "music.extend": ("extend", "音乐续写", "ACE-Step 1.5", "R2M", "末端续写", "源采样率"),
     "music.redraw": ("redraw", "局部重绘", "ACE-Step 1.5", "R2M", "局部重绘", "48kHz"),
     "duet.plan": ("duet_generate", "合唱企划", "ACE-Step 1.5", "DUET", "双人对唱", "JSON"),
     "duet.instrumental": ("duet_generate", "合唱伴奏", "ACE-Step 1.5", "DUET", "双人对唱", "48kHz"),

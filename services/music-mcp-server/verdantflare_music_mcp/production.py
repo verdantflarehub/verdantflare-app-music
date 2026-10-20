@@ -16,6 +16,7 @@ import zipfile
 from .artifacts import require_project_id
 from .results import structured_result
 from .review_rules import MUSIC_REVIEW_RULES
+from . import continuation
 
 
 BACKEND_OPERATIONS = {
@@ -85,6 +86,12 @@ class ProductionJobs:
             or len(asset_ids) > 16
         ):
             raise ValueError("invalid production configuration")
+        if operation not in BACKEND_OPERATIONS and operation != "music.extend":
+            raise ValueError("unsupported production operation")
+        if operation == "music.extend":
+            if len(asset_ids) != 1:
+                raise ValueError("continuation requires exactly one source")
+            continuation.validate(self.executor, project_id, asset_ids[0], config)
         # Resolve every input inside the project before accepting work.
         inputs = [self.store.get(a, project_id=project_id) for a in asset_ids]
         payload = {
@@ -134,31 +141,43 @@ class ProductionJobs:
                 job["state"] = "running"
                 self._save(path, job)
             try:
-                files = []
-                for asset_id in job["asset_ids"]:
-                    rec, payload = self.store.read(asset_id, job["project_id"])
-                    files.append(("audio", (rec.filename, payload, rec.media_type)))
-                raw = self.executor._post(
-                    "Production",
-                    self.executor.service_urls.mixer + "/v1/production/render",
-                    data={
-                        "operation": BACKEND_OPERATIONS[job["operation"]],
-                        "config_json": json.dumps(job["config"], allow_nan=False),
-                    },
-                    files=files or [("placeholder", (None, ""))],
-                )
-                with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                    names = archive.namelist()
-                    allowed = {"render.wav", "dry.wav", "wet.wav", "report.json"}
-                    if (
-                        not {"render.wav", "report.json"} <= set(names)
-                        or len(names) != len(set(names))
-                        or not set(names) <= allowed
-                    ):
-                        raise ValueError("invalid production archive")
-                    if sum(i.file_size for i in archive.infolist()) > 1024**3:
-                        raise ValueError("production output exceeds limit")
-                    values = {name: archive.read(name) for name in names}
+                if job["operation"] == "music.extend":
+                    def submitted(task_id):
+                        with self.lock:
+                            current = json.loads(path.read_text())
+                            current["backend_task_id"] = task_id
+                            job["backend_task_id"] = task_id
+                            self._save(path, current)
+                    values = continuation.render(
+                        self.executor, job["project_id"], job["asset_ids"][0],
+                        job["config"], submitted,
+                    )
+                else:
+                    files = []
+                    for asset_id in job["asset_ids"]:
+                        rec, payload = self.store.read(asset_id, job["project_id"])
+                        files.append(("audio", (rec.filename, payload, rec.media_type)))
+                    raw = self.executor._post(
+                        "Production",
+                        self.executor.service_urls.mixer + "/v1/production/render",
+                        data={
+                            "operation": BACKEND_OPERATIONS[job["operation"]],
+                            "config_json": json.dumps(job["config"], allow_nan=False),
+                        },
+                        files=files or [("placeholder", (None, ""))],
+                    )
+                    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                        names = archive.namelist()
+                        allowed = {"render.wav", "dry.wav", "wet.wav", "report.json"}
+                        if (
+                            not {"render.wav", "report.json"} <= set(names)
+                            or len(names) != len(set(names))
+                            or not set(names) <= allowed
+                        ):
+                            raise ValueError("invalid production archive")
+                        if sum(i.file_size for i in archive.infolist()) > 1024**3:
+                            raise ValueError("production output exceeds limit")
+                        values = {name: archive.read(name) for name in names}
                 report = json.loads(values["report.json"])
                 for name, payload in values.items():
                     if (
@@ -236,6 +255,24 @@ def register(mcp, executor, emit):
     def production_cancel(project_id: str, request_id: str):
         """Cancel queued work or suppress output publication after an active bounded DSP call returns. Cancelling is not yet cancelled."""
         return structured_result(jobs.status(project_id, request_id, cancel=True))
+
+    @mcp.tool(name="music.extend", description=(
+        "Queue source-conditioned end continuation with ACE-Step. Adds 3-60 seconds, "
+        "total at most 300 seconds; preserves every source PCM frame. Source must be "
+        "project-owned mono/stereo PCM16/24 WAV. Lyrics describe the new section. "
+        "Use workflow.preflight(redraw) first and poll music.production_status using "
+        "the same request_id. Interrupted jobs never auto-regenerate. The new section "
+        "needs musical audition before dependent extension; prefix integrity does not "
+        "guarantee melody, voice or arrangement continuity.\n\n" + MUSIC_REVIEW_RULES))
+    def music_extend(
+        project_id: str, request_id: str, audio_asset_id: str,
+        addition_seconds: float, instructions: str, lyrics: str = "", seed: int = 7,
+    ):
+        return structured_result(jobs.submit(
+            project_id, request_id, "music.extend",
+            {"addition_seconds": addition_seconds, "instructions": instructions,
+             "lyrics": lyrics, "seed": seed}, [audio_asset_id],
+        ))
 
     @mcp.tool(name="voice.tune")
     def vocal_tune(project_id: str, request_id: str, audio_asset_id: str, config: dict):

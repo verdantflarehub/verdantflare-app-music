@@ -91,3 +91,5 @@ codex mcp add verdantflare-music \
 ```
 
 注册后新开 Codex 会话。未带 Token 的 MCP 与 Artifact 请求必须返回 `401`，允许的公网 Host 必须完成 MCP 初始化，其他 Host 必须由 transport security 拒绝。
+
+`music.extend` 使用原音频上下文在末端新增 3–60 秒（总长 ≤300 秒），保持全部源 PCM 帧。输入 project_id、request_id、audio_asset_id、addition_seconds、instructions、lyrics、seed；先执行 redraw 预检，使用 music.production_status/cancel 对账。返回 render.wav 与 report.json；中断保留后端任务编号，不自动重新生成。续写前缀保真不保证新段音乐一致性，首次衔接须听审后再继续。

@@ -1054,6 +1054,34 @@ class MusicExecutor:
             raise ExecutionError("music redraw source must be a valid PCM WAV") from error
         if end_seconds > source_duration:
             raise ValueError("redraw range exceeds the source audio duration")
+        edited, _ = self._conditioned_repaint(
+            source, audio, start_seconds, end_seconds, instructions, lyrics,
+            seed, crossfade_seconds, preservation_mode, edit_strength,
+        )
+        redrawn = preserve_pcm_outside_region(
+            audio,
+            edited,
+            start_seconds,
+            end_seconds,
+            crossfade_seconds,
+        )
+        validate_pcm_wav(redrawn)
+        return [
+            self.store.create(
+                project_id=project,
+                operation="music.redraw",
+                filename=f"Demo_Redraw_{revision_number}.wav",
+                media_type="audio/wav",
+                payload=redrawn,
+            )
+        ]
+
+    def _conditioned_repaint(
+        self, source, audio, start_seconds, end_seconds, instructions, lyrics,
+        seed, crossfade_seconds, preservation_mode, edit_strength,
+        on_submitted=None, extra_data=None,
+    ):
+        """Submit one source-conditioned task; record its identity before polling."""
         headers = self._music_editor_headers()
         submitted = self._post_json(
             "ACE-Step task submission",
@@ -1074,6 +1102,7 @@ class MusicExecutor:
                 "seed": str(seed),
                 "use_random_seed": "false",
                 "audio_format": "wav",
+                **(extra_data or {}),
             },
         )
         submission_data = self._ace_data(submitted, "task submission")
@@ -1082,6 +1111,8 @@ class MusicExecutor:
         ):
             raise ExecutionError("ACE-Step task submission returned no task ID")
         task_id = submission_data["task_id"]
+        if on_submitted is not None:
+            on_submitted(task_id)
 
         result_items: list[object] | None = None
         deadline = time.monotonic() + 900.0
@@ -1132,23 +1163,7 @@ class MusicExecutor:
             raise ExecutionError(f"ACE-Step audio download returned HTTP {response.status_code}")
         if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
             raise ExecutionError("ACE-Step audio download has an invalid size")
-        redrawn = preserve_pcm_outside_region(
-            audio,
-            response.content,
-            start_seconds,
-            end_seconds,
-            crossfade_seconds,
-        )
-        validate_pcm_wav(redrawn)
-        return [
-            self.store.create(
-                project_id=project,
-                operation="music.redraw",
-                filename=f"Demo_Redraw_{revision_number}.wav",
-                media_type="audio/wav",
-                payload=redrawn,
-            )
-        ]
+        return response.content, task_id
 
     def separate_stems(self, *, project_id: str, audio_asset_id: str) -> list[ArtifactRecord]:
         project = require_project_id(project_id)

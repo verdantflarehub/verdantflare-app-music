@@ -88,6 +88,7 @@ class ServerTest(unittest.TestCase):
                 "duet.vocal",
                 "duet.preview",
                 "music.redraw",
+                "music.extend",
                 "stems.separate",
                 "voice.prepare",
                 "voice.train",
@@ -131,6 +132,7 @@ class ServerTest(unittest.TestCase):
                     "project_id", "plan_asset_id", "instrumental_asset_id",
                     "female_asset_id", "male_asset_id",
                 },
+                "music.extend": {"project_id", "request_id", "audio_asset_id", "addition_seconds", "instructions", "lyrics", "seed"},
                 "music.redraw": {
                     "project_id",
                     "audio_asset_id",
