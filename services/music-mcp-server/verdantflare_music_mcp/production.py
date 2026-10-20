@@ -130,6 +130,23 @@ class ProductionJobs:
             self.pool.submit(self._run, path)
         return self.status(project_id, request_id)
 
+    def resume_extension(self, project_id, request_id):
+        path = self._path(project_id, request_id)
+        with self.lock:
+            status = self.status(project_id, request_id)
+            job = json.loads(path.read_text())
+            if job["operation"] != "music.extend":
+                raise ValueError("only continuation tasks support backend-result recovery")
+            if job["state"] in {"completed", "queued", "running", "cancelling", "cancelled"}:
+                return status
+            if not job.get("backend_task_id") or job.get("artifacts"):
+                raise ValueError("no recoverable backend identity or partial publication requires inspection")
+            job.update(state="queued", epoch=self.epoch)
+            job.pop("error", None)
+            self._save(path, job)
+            self.pool.submit(self._run, path)
+            return self.status(project_id, request_id)
+
     def _run(self, path):
         # Protect shared-volume deployments against concurrent process execution.
         with path.with_suffix(".lock").open("a") as guard:
@@ -150,7 +167,7 @@ class ProductionJobs:
                             self._save(path, current)
                     values = continuation.render(
                         self.executor, job["project_id"], job["asset_ids"][0],
-                        job["config"], submitted,
+                        job["config"], submitted, resume_task_id=job.get("backend_task_id"),
                     )
                 else:
                     files = []
@@ -255,6 +272,11 @@ def register(mcp, executor, emit):
     def production_cancel(project_id: str, request_id: str):
         """Cancel queued work or suppress output publication after an active bounded DSP call returns. Cancelling is not yet cancelled."""
         return structured_result(jobs.status(project_id, request_id, cancel=True))
+
+    @mcp.tool(name="music.extend_resume")
+    def music_extend_resume(project_id: str, request_id: str):
+        """Recover a failed/interrupted continuation from its recorded backend task. Never submits new inference or changes inputs. Completed/cancelled/active requests are returned unchanged. Partial publication requires inspection."""
+        return structured_result(jobs.resume_extension(project_id, request_id))
 
     @mcp.tool(name="music.extend", description=(
         "Queue source-conditioned end continuation with ACE-Step. Adds 3-60 seconds, "

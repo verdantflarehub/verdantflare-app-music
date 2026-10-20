@@ -167,7 +167,7 @@ class DashboardAndTasksTest(unittest.TestCase):
 
                 mcp_resp = client.get("/api/mcp/status")
                 self.assertEqual(mcp_resp.status_code, 200)
-                self.assertEqual(len(mcp_resp.json()["tools"]), 22)
+                self.assertEqual(len(mcp_resp.json()["tools"]), 23)
 
                 # 5. Audio preview & lossless chunk download
                 prev_resp = client.get(f"/api/artifacts/{rec.artifact_id}/preview")

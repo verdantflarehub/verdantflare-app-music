@@ -1079,40 +1079,45 @@ class MusicExecutor:
     def _conditioned_repaint(
         self, source, audio, start_seconds, end_seconds, instructions, lyrics,
         seed, crossfade_seconds, preservation_mode, edit_strength,
-        on_submitted=None, extra_data=None,
+        on_submitted=None, extra_data=None, resume_task_id=None,
     ):
         """Submit one source-conditioned task; record its identity before polling."""
         headers = self._music_editor_headers()
-        submitted = self._post_json(
-            "ACE-Step task submission",
-            f"{self.service_urls.music_editor}/release_task",
-            headers=headers,
-            files={"src_audio": (source.filename, audio, source.media_type)},
-            data={
-                "task_type": "repaint",
-                "prompt": instructions,
-                "lyrics": lyrics,
-                "repainting_start": str(start_seconds),
-                "repainting_end": str(end_seconds),
-                "chunk_mask_mode": "explicit",
-                "repaint_mode": preservation_mode,
-                "repaint_strength": str(edit_strength),
-                "repaint_latent_crossfade_frames": str(max(1, round(crossfade_seconds * 25))),
-                "repaint_wav_crossfade_sec": str(crossfade_seconds),
-                "seed": str(seed),
-                "use_random_seed": "false",
-                "audio_format": "wav",
-                **(extra_data or {}),
-            },
-        )
-        submission_data = self._ace_data(submitted, "task submission")
-        if not isinstance(submission_data, dict) or not isinstance(
-            submission_data.get("task_id"), str
-        ):
-            raise ExecutionError("ACE-Step task submission returned no task ID")
-        task_id = submission_data["task_id"]
-        if on_submitted is not None:
-            on_submitted(task_id)
+        if resume_task_id is not None:
+            if not isinstance(resume_task_id, str) or not resume_task_id:
+                raise ValueError("invalid stored backend task identity")
+            task_id = resume_task_id
+        else:
+            submitted = self._post_json(
+                "ACE-Step task submission",
+                f"{self.service_urls.music_editor}/release_task",
+                headers=headers,
+                files={"src_audio": (source.filename, audio, source.media_type)},
+                data={
+                    "task_type": "repaint",
+                    "prompt": instructions,
+                    "lyrics": lyrics,
+                    "repainting_start": str(start_seconds),
+                    "repainting_end": str(end_seconds),
+                    "chunk_mask_mode": "explicit",
+                    "repaint_mode": preservation_mode,
+                    "repaint_strength": str(edit_strength),
+                    "repaint_latent_crossfade_frames": str(max(1, round(crossfade_seconds * 25))),
+                    "repaint_wav_crossfade_sec": str(crossfade_seconds),
+                    "seed": str(seed),
+                    "use_random_seed": "false",
+                    "audio_format": "wav",
+                    **(extra_data or {}),
+                },
+            )
+            submission_data = self._ace_data(submitted, "task submission")
+            if not isinstance(submission_data, dict) or not isinstance(
+                submission_data.get("task_id"), str
+            ):
+                raise ExecutionError("ACE-Step task submission returned no task ID")
+            task_id = submission_data["task_id"]
+            if on_submitted is not None:
+                on_submitted(task_id)
 
         result_items: list[object] | None = None
         deadline = time.monotonic() + 900.0

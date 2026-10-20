@@ -64,9 +64,13 @@ def append_generated(source, edited, addition_seconds):
         generated, _ = audioop.ratecv(generated, params.sampwidth, params.nchannels,
                                       ep.framerate, params.framerate, None)
     frame_bytes = params.nchannels * params.sampwidth
-    total_frames = params.nframes + round(addition_seconds * params.framerate)
-    if len(generated) < total_frames * frame_bytes:
+    requested_frames = params.nframes + round(addition_seconds * params.framerate)
+    available_frames = len(generated) // frame_bytes
+    # ACE-Step's 25 Hz latent grid rounds the end down by less than 40 ms.
+    # Preserve its real end; never fabricate missing PCM frames.
+    if available_frames < requested_frames - math.ceil(params.framerate / 25):
         raise ExecutionError("continuation result is shorter than requested; padding is forbidden")
+    total_frames = min(requested_frames, available_frames)
     tail = generated[len(original):total_frames * frame_bytes]
     if audioop.rms(tail, params.sampwidth) == 0:
         raise ExecutionError("continuation returned silence")
@@ -76,6 +80,8 @@ def append_generated(source, edited, addition_seconds):
         dst.writeframes(original + tail)
     return result.getvalue(), {
         "source_frames": params.nframes, "output_frames": total_frames,
+        "requested_frames": requested_frames,
+        "duration_shortfall_seconds": (requested_frames - total_frames) / params.framerate,
         "sample_rate": params.framerate, "channels": params.nchannels,
         "sample_width": params.sampwidth,
         "preserved_prefix_pcm_sha256": hashlib.sha256(original).hexdigest(),
@@ -84,7 +90,7 @@ def append_generated(source, edited, addition_seconds):
     }
 
 
-def render(executor, project_id, asset_id, config, on_submitted):
+def render(executor, project_id, asset_id, config, on_submitted, resume_task_id=None):
     source, raw, params, _ = validate(executor, project_id, asset_id, config)
     ready = executor.preflight(workflow="redraw", require_local_redraw=True)
     if ready["status"] != "ready":
@@ -93,9 +99,9 @@ def render(executor, project_id, asset_id, config, on_submitted):
     edited, task_id = executor._conditioned_repaint(
         source, raw, duration, duration + config["addition_seconds"],
         config["instructions"], config["lyrics"], config["seed"],
-        0.05, "aggressive", 1.0, on_submitted=on_submitted,
+        0.05, "aggressive", 1.0, on_submitted=on_submitted, resume_task_id=resume_task_id,
         extra_data={"audio_duration": str(duration + config["addition_seconds"]),
-                    "inference_steps": "48", "thinking": "false"},
+                    "inference_steps": "48", "thinking": "false", "batch_size": "1"},
     )
     output, report = append_generated(raw, edited, config["addition_seconds"])
     report.update({

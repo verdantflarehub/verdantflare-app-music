@@ -123,7 +123,7 @@ class ContinuationTest(unittest.TestCase):
             src = store.create(project_id='p', operation='test', filename='a.wav', media_type='audio/wav', payload=wav_bytes(1))
             jobs = ProductionJobs(ex, lambda *a: self.fail('cancelled output published'))
             rid = str(uuid.uuid4())
-            def render(executor, project, asset, config, callback):
+            def render(executor, project, asset, config, callback, resume_task_id=None):
                 callback('cancel-me'); jobs.status('p', rid, cancel=True)
                 raw = wav_bytes(4)
                 return {'render.wav': raw, 'report.json': json.dumps({'outputs_sha256': {'render.wav': hashlib.sha256(raw).hexdigest()}}).encode()}
@@ -133,3 +133,27 @@ class ContinuationTest(unittest.TestCase):
             status = jobs.status('p', rid)
             self.assertEqual(status['state'], 'cancelled'); self.assertEqual(status['artifacts'], [])
             self.assertEqual(status['backend_task_id'], 'cancel-me')
+
+    def test_latent_rounding_keeps_actual_end_without_padding(self):
+        src = wav_bytes(1, 48000)
+        output, report = append_generated(src, wav_bytes(3.984, 48000), 3)
+        self.assertEqual(source_pcm(output)[0].nframes, round(3.984 * 48000))
+        self.assertAlmostEqual(report['duration_shortfall_seconds'], .016)
+        with self.assertRaisesRegex(ExecutionError, 'shorter'):
+            append_generated(src, wav_bytes(3.95, 48000), 3)
+
+    def test_resume_uses_original_backend_task_without_submission(self):
+        calls = []
+        def handler(req):
+            calls.append(req.url.path)
+            if req.url.path == '/query_result':
+                self.assertEqual(json.loads(req.content)['task_id_list'], ['prior-task'])
+                return httpx.Response(200, json={'code': 200, 'data': [{'task_id': 'prior-task', 'status': 1, 'result': [{'file': '/output.wav'}]}]})
+            if req.url.path == '/output.wav':
+                return httpx.Response(200, content=wav_bytes(4))
+            self.fail('recovery attempted new inference: ' + req.url.path)
+        with tempfile.TemporaryDirectory() as d:
+            ex = MusicExecutor(ArtifactStore(Path(d)), ServiceURLs(*(['http://backend'] * 6)), httpx.Client(transport=httpx.MockTransport(handler)))
+            raw, identity = ex._conditioned_repaint(None, b'', 1, 4, 'continue', '', 1, .05, 'aggressive', 1, resume_task_id='prior-task')
+            self.assertEqual(identity, 'prior-task')
+            self.assertEqual(calls, ['/query_result', '/output.wav'])
