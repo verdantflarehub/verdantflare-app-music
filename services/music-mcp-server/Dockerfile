@@ -3,12 +3,13 @@ FROM docker.io/library/python:3.11.10-slim
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare Music MCP Server"
-LABEL org.opencontainers.image.version="0.11.1"
+LABEL org.opencontainers.image.version="0.12.0"
 WORKDIR /app
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && pip check
 COPY verdantflare_music_mcp ./verdantflare_music_mcp
+RUN python3 -m verdantflare_music_mcp.conditioning /app/tokenizer.json
 RUN python3 -m verdantflare_music_mcp.dashboard_assets \
     --source ./verdantflare_music_mcp/dashboard_src \
     --output /app/dashboard

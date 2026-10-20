@@ -91,10 +91,9 @@ def append_generated(source, edited, addition_seconds):
 
 
 def render(executor, project_id, asset_id, config, on_submitted, resume_task_id=None):
+    if resume_task_id is None:
+        raise ExecutionError("ACE-Step song extension is retired; only recorded-task recovery is allowed")
     source, raw, params, _ = validate(executor, project_id, asset_id, config)
-    ready = executor.preflight(workflow="redraw", require_local_redraw=True)
-    if ready["status"] != "ready":
-        raise ExecutionError("continuation editor preflight blocked")
     duration = params.nframes / params.framerate
     edited, task_id = executor._conditioned_repaint(
         source, raw, duration, duration + config["addition_seconds"],

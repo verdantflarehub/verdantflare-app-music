@@ -53,7 +53,7 @@ class ContinuationTest(unittest.TestCase):
             with self.assertRaises(ArtifactNotFound):
                 validate(ex, 'other', a.artifact_id, cfg)
 
-    def test_native_outpainting_job_and_idempotent_receipt(self):
+    def test_legacy_job_recovery_and_idempotent_receipt(self):
         calls = []
         original = wav_bytes(1, 48000, 1200)
         def handler(req):
@@ -77,7 +77,11 @@ class ContinuationTest(unittest.TestCase):
             a = store.create(project_id='p', operation='test', filename='source.wav', media_type='audio/wav', payload=original)
             jobs = ProductionJobs(ex, lambda *a: None)
             rid = str(uuid.uuid4()); cfg = dict(addition_seconds=3, instructions='continue', lyrics='new verse', seed=12)
-            jobs.submit('p', rid, 'music.extend', cfg, [a.artifact_id]); jobs.pool.shutdown(wait=True)
+            payload = dict(operation='music.extend', config=cfg, asset_ids=[a.artifact_id], inputs_sha256=[a.sha256])
+            fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+            jobs._save(jobs._path('p', rid), dict(payload, project_id='p', request_id=rid,
+                fingerprint=fingerprint, epoch='previous-worker', state='failed', artifacts=[], backend_task_id='native-task'))
+            jobs.resume_extension('p', rid); jobs.pool.shutdown(wait=True)
             result = jobs.status('p', rid)
             self.assertEqual(result['state'], 'completed', result)
             self.assertEqual(result['backend_task_id'], 'native-task')
@@ -86,7 +90,7 @@ class ContinuationTest(unittest.TestCase):
             _, raw = store.read(output['artifact_id'], 'p')
             self.assertEqual(source_pcm(raw)[1][:len(source_pcm(original)[1])], source_pcm(original)[1])
             self.assertEqual(jobs.submit('p', rid, 'music.extend', cfg, [a.artifact_id]), result)
-            self.assertEqual(calls.count('/release_task'), 1)
+            self.assertEqual(calls.count('/release_task'), 0)
             with self.assertRaises(ValueError):
                 jobs.submit('p', rid, 'music.extend', dict(cfg, seed=13), [a.artifact_id])
 
@@ -128,7 +132,10 @@ class ContinuationTest(unittest.TestCase):
                 raw = wav_bytes(4)
                 return {'render.wav': raw, 'report.json': json.dumps({'outputs_sha256': {'render.wav': hashlib.sha256(raw).hexdigest()}}).encode()}
             with patch('verdantflare_music_mcp.production.continuation.render', side_effect=render):
-                jobs.submit('p', rid, 'music.extend', dict(addition_seconds=3, instructions='continue', lyrics='', seed=1), [src.artifact_id])
+                jobs._save(jobs._path('p', rid), dict(operation='music.extend', project_id='p', request_id=rid,
+                    config=dict(addition_seconds=3, instructions='continue', lyrics='', seed=1),
+                    asset_ids=[src.artifact_id], epoch='previous-worker', state='failed', artifacts=[], backend_task_id='cancel-me'))
+                jobs.resume_extension('p', rid)
                 jobs.pool.shutdown(wait=True)
             status = jobs.status('p', rid)
             self.assertEqual(status['state'], 'cancelled'); self.assertEqual(status['artifacts'], [])

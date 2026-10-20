@@ -25,6 +25,7 @@ from .artifacts import (
     require_project_id,
 )
 from .gpu_lease import GpuCoordinator, LeaseBusy
+from .conditioning import check as check_conditioning
 from .duet import DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice, pcm16_wav, preview_duet, read_duet_plan, validate_vocal_isolation
 
 
@@ -1011,6 +1012,7 @@ class MusicExecutor:
         crossfade_seconds: float,
         preservation_mode: str = "balanced",
         edit_strength: float = 0.5,
+        vocal_language: str = "unknown",
     ) -> list[ArtifactRecord]:
         project = require_project_id(project_id)
         if self.service_urls.music_editor is None:
@@ -1057,6 +1059,7 @@ class MusicExecutor:
         edited, _ = self._conditioned_repaint(
             source, audio, start_seconds, end_seconds, instructions, lyrics,
             seed, crossfade_seconds, preservation_mode, edit_strength,
+            vocal_language=vocal_language,
         )
         redrawn = preserve_pcm_outside_region(
             audio,
@@ -1079,7 +1082,7 @@ class MusicExecutor:
     def _conditioned_repaint(
         self, source, audio, start_seconds, end_seconds, instructions, lyrics,
         seed, crossfade_seconds, preservation_mode, edit_strength,
-        on_submitted=None, extra_data=None, resume_task_id=None,
+        on_submitted=None, extra_data=None, resume_task_id=None, vocal_language="unknown",
     ):
         """Submit one source-conditioned task; record its identity before polling."""
         headers = self._music_editor_headers()
@@ -1088,6 +1091,7 @@ class MusicExecutor:
                 raise ValueError("invalid stored backend task identity")
             task_id = resume_task_id
         else:
+            check_conditioning(instructions, lyrics, vocal_language)
             submitted = self._post_json(
                 "ACE-Step task submission",
                 f"{self.service_urls.music_editor}/release_task",
@@ -1097,6 +1101,7 @@ class MusicExecutor:
                     "task_type": "repaint",
                     "prompt": instructions,
                     "lyrics": lyrics,
+                    "vocal_language": vocal_language,
                     "repainting_start": str(start_seconds),
                     "repainting_end": str(end_seconds),
                     "chunk_mask_mode": "explicit",

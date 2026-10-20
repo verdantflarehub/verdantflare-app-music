@@ -257,7 +257,7 @@ def duet_preview(
     )
 
 
-@mcp.tool(name="music.redraw", description='Replace a bounded region through a conditioned-audio editor and return a full-song WAV. In-region harmony and rhythm are not guaranteed preserved.' + "\n\n" + MUSIC_REVIEW_RULES)
+@mcp.tool(name="music.redraw", description='ACE-Step edits an existing bounded region only; never use it to compose new verses or extend a song. Use music.conditioning_check first (caption 192 tokens, lyrics 1800), and set vocal_language explicitly (ja for Japanese). Crossfade_seconds governs the final local PCM splice; backend preservation_mode resolves its own latent blending. In-region harmony and rhythm are not guaranteed preserved.' + "\n\n" + MUSIC_REVIEW_RULES)
 def music_redraw(
     project_id: str,
     audio_asset_id: str,
@@ -270,6 +270,7 @@ def music_redraw(
     crossfade_seconds: float = 1.0,
     preservation_mode: str = "balanced",
     edit_strength: float = 0.5,
+    vocal_language: str = "unknown",
 ) -> types.CallToolResult:
     """Replace one bounded region through a configured conditioned-audio editor and return a full-song WAV."""
     records = executor.redraw(
@@ -284,6 +285,7 @@ def music_redraw(
         crossfade_seconds=crossfade_seconds,
         preservation_mode=preservation_mode,
         edit_strength=edit_strength,
+        vocal_language=vocal_language,
     )
     return _emit_artifact_result(
         project_id,

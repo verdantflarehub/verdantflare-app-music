@@ -342,6 +342,7 @@ class ExecutorTest(unittest.TestCase):
                     "12.0",
                     "20.0",
                     "repair the ending",
+                    'name="vocal_language"\r\n\r\nja',
                     "0.75",
                     "17",
                 ):
@@ -412,6 +413,7 @@ class ExecutorTest(unittest.TestCase):
                 crossfade_seconds=0.75,
                 preservation_mode="balanced",
                 edit_strength=0.6,
+                vocal_language="ja",
             )
             self.assertEqual(records[0].filename, "Demo_Redraw_1.wav")
             _, persisted = store.read(records[0].artifact_id, "redraw-project")

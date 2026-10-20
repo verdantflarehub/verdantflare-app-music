@@ -17,6 +17,7 @@ from .artifacts import require_project_id
 from .results import structured_result
 from .review_rules import MUSIC_REVIEW_RULES
 from . import continuation
+from .conditioning import check as check_conditioning
 
 
 BACKEND_OPERATIONS = {
@@ -109,6 +110,8 @@ class ProductionJobs:
                 if old["fingerprint"] != fingerprint:
                     raise ValueError("request_id already used with different inputs")
                 return self.status(project_id, request_id)
+            if operation == "music.extend":
+                raise ValueError("ACE-Step song extension is retired; song generation must use Music3. Existing requests may only recover their recorded backend task.")
             active = sum(
                 json.loads(p.read_text()).get("state")
                 in {"queued", "running", "cancelling"}
@@ -278,23 +281,10 @@ def register(mcp, executor, emit):
         """Recover a failed/interrupted continuation from its recorded backend task. Never submits new inference or changes inputs. Completed/cancelled/active requests are returned unchanged. Partial publication requires inspection."""
         return structured_result(jobs.resume_extension(project_id, request_id))
 
-    @mcp.tool(name="music.extend", description=(
-        "Queue source-conditioned end continuation with ACE-Step. Adds 3-60 seconds, "
-        "total at most 300 seconds; preserves every source PCM frame. Source must be "
-        "project-owned mono/stereo PCM16/24 WAV. Lyrics describe the new section. "
-        "Use workflow.preflight(redraw) first and poll music.production_status using "
-        "the same request_id. Interrupted jobs never auto-regenerate. The new section "
-        "needs musical audition before dependent extension; prefix integrity does not "
-        "guarantee melody, voice or arrangement continuity.\n\n" + MUSIC_REVIEW_RULES))
-    def music_extend(
-        project_id: str, request_id: str, audio_asset_id: str,
-        addition_seconds: float, instructions: str, lyrics: str = "", seed: int = 7,
-    ):
-        return structured_result(jobs.submit(
-            project_id, request_id, "music.extend",
-            {"addition_seconds": addition_seconds, "instructions": instructions,
-             "lyrics": lyrics, "seed": seed}, [audio_asset_id],
-        ))
+    @mcp.tool(name="music.conditioning_check")
+    def conditioning_check(instructions: str, lyrics: str = "", vocal_language: str = "unknown"):
+        """Validate ACE-Step local-edit conditioning without inference. Caption budget 192 tokens, formatted lyrics 1800; no silent truncation. Set ja for Japanese. This is not the Music3 generation budget."""
+        return structured_result(check_conditioning(instructions, lyrics, vocal_language))
 
     @mcp.tool(name="voice.tune")
     def vocal_tune(project_id: str, request_id: str, audio_asset_id: str, config: dict):

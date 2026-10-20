@@ -92,6 +92,8 @@ codex mcp add verdantflare-music \
 
 注册后新开 Codex 会话。未带 Token 的 MCP 与 Artifact 请求必须返回 `401`，允许的公网 Host 必须完成 MCP 初始化，其他 Host 必须由 transport security 拒绝。
 
-`music.extend` 使用原音频上下文在末端新增 3–60 秒（总长 ≤300 秒），保持全部源 PCM 帧。输入 project_id、request_id、audio_asset_id、addition_seconds、instructions、lyrics、seed；先执行 redraw 预检，使用 music.production_status/cancel 对账。返回 render.wav 与 report.json；中断保留后端任务编号，不自动重新生成。续写前缀保真不保证新段音乐一致性，首次衔接须听审后再继续。
+新歌和完整候选统一 `music.generate` → Music3；ACE-Step 仅用于等长局部修改。旧 `music.extend` 已撤下，内部也拒绝新扩写；不能以跨模型生成尾段代替保留原表演的续作。当前 Music3 不支持 ref_audio，不能承诺保留旧 WAV 续写。
 
 `music.extend_resume(project_id, request_id)` 只恢复已保存后端任务的结果，不重复推理。ACE-Step 25 Hz 时长网格可能使实际结果比目标短不超过 40 ms，报告实际帧数及差值，不补静音；超过容差拒绝。
+
+局部修改先使用 `music.conditioning_check` 验证 ACE 专用文本预算（caption 192 token、格式化歌词 1800 token），设置 `vocal_language=ja` 等实际语言。超限拒绝，不截断。此预算不适用于 Music3。运行依赖的 Qwen3 tokenizer 在镜像构建时按固定 revision 下载并校验 SHA-256；本地测试设置 `MUSIC_CONDITIONING_TOKENIZER` 指向同一文件，运行时不联网下载。
