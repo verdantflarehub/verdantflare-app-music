@@ -19,6 +19,7 @@ from starlette.routing import Route
 
 from . import __version__
 from .artifacts import ArtifactError, ArtifactNotFound, ArtifactStore
+from .content_rating import include_nsfw_from_headers
 from .dashboard_assets import DashboardAssets, load_or_build_assets
 from .executor import ExecutionError, MusicExecutor
 from .registry import EtcdRegistry
@@ -549,10 +550,33 @@ class MusicDashboard:
             "services": services,
             "voice_models": voice_models,
             "tools": self.tools_schema,
+            "content_rating": {
+                "supported": True,
+                "tool": "music.rate_content",
+                "rubric_version": "rubric v1.0",
+                "add_only": True,
+            },
         }
 
-    def build_dashboard_summary(self) -> dict[str, Any]:
-        task_items = self.tasks.list_tasks()
+    def _active_store(self, request: Request | None = None) -> ArtifactStore:
+        if request is not None:
+            state_store = getattr(request.app.state, "artifacts", None) or getattr(request.app.state, "store", None)
+            if state_store is not None:
+                return state_store
+        return self.store
+
+    def _active_tasks(self, request: Request | None = None) -> TaskStore:
+        if request is not None:
+            state_tasks = getattr(request.app.state, "tasks", None) or getattr(request.app.state, "task_store", None)
+            if state_tasks is not None:
+                state_ratings = getattr(request.app.state, "ratings", None)
+                if state_ratings is not None:
+                    state_tasks.ratings = state_ratings
+                return state_tasks
+        return self.tasks
+
+    def build_Dashboard_Summary_For(self, tasks_store: TaskStore, *, include_nsfw: bool = False) -> dict[str, Any]:
+        task_items = tasks_store.list_tasks(include_nsfw=include_nsfw, include_ui_fields=True)
         services, voice_models = self._probe_services()
         reg = self.registry.status_snapshot()
         all_artifacts_count = sum(len(t.get("artifacts", [])) for t in task_items)
@@ -589,11 +613,14 @@ class MusicDashboard:
             "tasks": task_items,
         }
 
+    def build_dashboard_summary(self, *, include_nsfw: bool = False) -> dict[str, Any]:
+        return self.build_Dashboard_Summary_For(self.tasks, include_nsfw=include_nsfw)
+
     async def handle_internal(self, request: Request) -> Response:
         if self.assets is None:
             return _error_response("DASHBOARD_UNAVAILABLE", 503)
         path = request.url.path
-        if path == "/internal/dashboard-declaration":
+        if path.endswith("/internal/dashboard-declaration"):
             return Response(
                 self.assets.declaration,
                 headers={
@@ -602,7 +629,7 @@ class MusicDashboard:
                     "X-Content-Type-Options": "nosniff",
                 },
             )
-        if path == "/internal/dashboard-index":
+        if path.endswith("/internal/dashboard-index"):
             return Response(
                 self.assets.index,
                 headers={
@@ -643,19 +670,72 @@ class MusicDashboard:
         )
 
     async def handle_api_dashboard(self, request: Request) -> JSONResponse:
-        summary = await run_in_threadpool(self.build_dashboard_summary)
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        tasks_store = self._active_tasks(request)
+        summary = await run_in_threadpool(
+            lambda: self.build_Dashboard_Summary_For(tasks_store, include_nsfw=include_nsfw)
+        )
         return _json_response(summary)
+
+    async def handle_api_list_tasks(self, request: Request) -> JSONResponse:
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        tasks_store = self._active_tasks(request)
+        project_id = request.query_params.get("project_id") or None
+        operation = request.query_params.get("operation") or request.query_params.get("workflow") or None
+        status = request.query_params.get("status") or None
+        try:
+            limit = max(1, min(500, int(request.query_params.get("limit", "50"))))
+            offset = max(0, int(request.query_params.get("offset", "0")))
+        except ValueError:
+            limit, offset = 50, 0
+        items, total = await run_in_threadpool(
+            lambda: tasks_store.query_tasks(
+                project_id=project_id,
+                operation=operation,
+                status=status,
+                limit=limit,
+                offset=offset,
+                include_nsfw=include_nsfw,
+                include_ui_fields=True,
+            )
+        )
+        return _json_response(
+            {
+                "tasks": items,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+
+    async def handle_api_task_stats(self, request: Request) -> JSONResponse:
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        tasks_store = self._active_tasks(request)
+        project_id = request.query_params.get("project_id") or None
+        stats = await run_in_threadpool(
+            lambda: tasks_store.get_stats(include_nsfw=include_nsfw, project_id=project_id)
+        )
+        return _json_response(stats)
 
     async def handle_api_task_detail(self, request: Request) -> JSONResponse:
         task_id = request.path_params.get("task_id", "")
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        tasks_store = self._active_tasks(request)
         try:
-            task = await run_in_threadpool(self.tasks.get_task, task_id)
+            task = await run_in_threadpool(
+                lambda: tasks_store.get_task(
+                    task_id,
+                    include_nsfw=include_nsfw,
+                    include_ui_fields=True,
+                )
+            )
         except TaskNotFound:
             return _error_response("TASK_NOT_FOUND", 404)
         return _json_response({"task": task})
 
     async def handle_api_task_title(self, request: Request) -> JSONResponse:
         task_id = request.path_params.get("task_id", "")
+        tasks_store = self._active_tasks(request)
         try:
             raw = await request.body()
             if len(raw) > 8192:
@@ -663,7 +743,7 @@ class MusicDashboard:
             payload = json.loads(raw.decode("utf-8"))
             if not isinstance(payload, dict) or not isinstance(payload.get("title"), str):
                 return _error_response("INVALID_TITLE", 400)
-            updated = await run_in_threadpool(self.tasks.rename_task, task_id, payload["title"])
+            updated = await run_in_threadpool(tasks_store.rename_task, task_id, payload["title"])
         except TaskNotFound:
             return _error_response("TASK_NOT_FOUND", 404)
         except (InvalidTaskTitle, ValueError, UnicodeDecodeError):
@@ -680,9 +760,14 @@ class MusicDashboard:
 
     async def handle_api_artifact_preview(self, request: Request) -> JSONResponse:
         artifact_id = request.path_params.get("artifact_id", "")
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        tasks_store = self._active_tasks(request)
+        artifacts_store = self._active_store(request)
+        if not include_nsfw and tasks_store.is_artifact_nsfw(artifact_id):
+            return _error_response("ARTIFACT_NOT_FOUND", 404)
         try:
-            record = self.store.get(artifact_id)
-            path = self.store.content_path(record)
+            record = artifacts_store.get(artifact_id)
+            path = artifacts_store.content_path(record)
         except (ValueError, ArtifactNotFound):
             return _error_response("ARTIFACT_NOT_FOUND", 404)
         except ArtifactError:
@@ -721,12 +806,17 @@ class MusicDashboard:
     async def handle_api_artifact_chunk(self, request: Request) -> JSONResponse:
         artifact_id = request.path_params.get("artifact_id", "")
         chunk_str = request.path_params.get("chunk_index", "0")
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        tasks_store = self._active_tasks(request)
+        artifacts_store = self._active_store(request)
+        if not include_nsfw and tasks_store.is_artifact_nsfw(artifact_id):
+            return _error_response("ARTIFACT_NOT_FOUND", 404)
         try:
             chunk_index = int(chunk_str)
             if chunk_index < 0:
                 raise ValueError
-            record = self.store.get(artifact_id)
-            path = self.store.content_path(record)
+            record = artifacts_store.get(artifact_id)
+            path = artifacts_store.content_path(record)
         except (ValueError, ArtifactNotFound):
             return _error_response("ARTIFACT_NOT_FOUND", 404)
         except ArtifactError:
@@ -758,18 +848,38 @@ class MusicDashboard:
     def routes(self) -> list[Route]:
         return [
             Route("/internal/dashboard-declaration", self.handle_internal, methods=["GET"]),
+            Route("/music/internal/dashboard-declaration", self.handle_internal, methods=["GET"]),
             Route("/internal/dashboard-index", self.handle_internal, methods=["GET"]),
+            Route("/music/internal/dashboard-index", self.handle_internal, methods=["GET"]),
             Route("/internal/dashboard/{asset:path}", self.handle_internal, methods=["GET"]),
+            Route("/music/internal/dashboard/{asset:path}", self.handle_internal, methods=["GET"]),
             Route("/dashboard", self.handle_standalone_page, methods=["GET"]),
+            Route("/music/dashboard", self.handle_standalone_page, methods=["GET"]),
             Route("/dashboard/{asset:path}", self.handle_standalone_page, methods=["GET"]),
+            Route("/music/dashboard/{asset:path}", self.handle_standalone_page, methods=["GET"]),
             Route("/api/dashboard", self.handle_api_dashboard, methods=["GET"]),
+            Route("/music/api/dashboard", self.handle_api_dashboard, methods=["GET"]),
+            Route("/api/tasks", self.handle_api_list_tasks, methods=["GET"]),
+            Route("/music/api/tasks", self.handle_api_list_tasks, methods=["GET"]),
+            Route("/api/tasks/stats", self.handle_api_task_stats, methods=["GET"]),
+            Route("/music/api/tasks/stats", self.handle_api_task_stats, methods=["GET"]),
             Route("/api/tasks/{task_id:str}", self.handle_api_task_detail, methods=["GET"]),
+            Route("/music/api/tasks/{task_id:str}", self.handle_api_task_detail, methods=["GET"]),
             Route("/api/tasks/{task_id:str}/title", self.handle_api_task_title, methods=["POST"]),
+            Route("/music/api/tasks/{task_id:str}/title", self.handle_api_task_title, methods=["POST"]),
             Route("/api/model-catalog", self.handle_api_model_catalog, methods=["GET"]),
+            Route("/music/api/model-catalog", self.handle_api_model_catalog, methods=["GET"]),
             Route("/api/mcp/status", self.handle_api_mcp_status, methods=["GET"]),
+            Route("/music/api/mcp/status", self.handle_api_mcp_status, methods=["GET"]),
             Route("/api/artifacts/{artifact_id:str}/preview", self.handle_api_artifact_preview, methods=["GET"]),
+            Route("/music/api/artifacts/{artifact_id:str}/preview", self.handle_api_artifact_preview, methods=["GET"]),
             Route(
                 "/api/artifacts/{artifact_id:str}/chunk/{chunk_index:str}",
+                self.handle_api_artifact_chunk,
+                methods=["GET"],
+            ),
+            Route(
+                "/music/api/artifacts/{artifact_id:str}/chunk/{chunk_index:str}",
                 self.handle_api_artifact_chunk,
                 methods=["GET"],
             ),

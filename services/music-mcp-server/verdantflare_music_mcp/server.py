@@ -19,18 +19,55 @@ from starlette.routing import Mount, Route
 from . import __version__
 from .review_rules import MUSIC_REVIEW_RULES
 from .artifacts import ArtifactError, ArtifactNotFound, ArtifactRecord, ArtifactStore
+from .content_rating import ContentRatingError, ContentRatingStore, include_nsfw_from_headers
 from .dashboard import MusicDashboard
 from .duet import DuetLine
 from .executor import MusicExecutor, ServiceURLs
 from .registry import EtcdRegistry
 from .results import artifact_result, structured_result
-from .tasks import TaskStore
+from .tasks import TaskNotFound, TaskStore
 
 
 store = ArtifactStore.from_environment()
-task_store = TaskStore(store)
+artifacts = store
+ratings = ContentRatingStore(store.root / "tasks.db", domain="music")
+task_store = TaskStore(store, ratings=ratings)
+tasks = task_store
+_DEFAULT_STORE = store
+_DEFAULT_TASKS = task_store
+_DEFAULT_RATINGS = ratings
 executor = MusicExecutor(store, ServiceURLs.from_environment())
 mcp = MCPServer("VerdantFlare Music")
+
+
+def _active_store() -> ArtifactStore:
+    if artifacts is not _DEFAULT_STORE and store is _DEFAULT_STORE:
+        return artifacts
+    return store
+
+
+def _active_ratings() -> ContentRatingStore:
+    global ratings
+    active_s = _active_store()
+    active_t = task_store if tasks is _DEFAULT_TASKS else tasks
+    expected_db = getattr(active_t, "db_path", active_s.root / "tasks.db")
+    if ratings is not _DEFAULT_RATINGS:
+        return ratings
+    if ratings.db_path != expected_db:
+        ratings = ContentRatingStore(expected_db, domain="music")
+    return ratings
+
+
+def _active_tasks() -> TaskStore:
+    active_s = _active_store()
+    active_r = _active_ratings()
+    active_t = tasks if tasks is not _DEFAULT_TASKS else task_store
+    if active_t.store is not active_s:
+        active_t.store = active_s
+        active_t.tasks_file = active_s.root / "tasks.json"
+        active_t.db_path = active_s.root / "tasks.db"
+    active_t.ratings = active_r
+    return active_t
 
 
 def _gpu_idle_loop() -> None:
@@ -52,8 +89,9 @@ def _emit_artifact_result(
     records: list[ArtifactRecord],
     params: dict[str, Any] | None = None,
 ) -> types.CallToolResult:
+    active_s = _active_store()
     try:
-        active_task_store = task_store if task_store.store is store else TaskStore(store)
+        active_task_store = _active_tasks()
         active_task_store.record_operation(
             project_id=project_id,
             operation=operation,
@@ -62,7 +100,7 @@ def _emit_artifact_result(
         )
     except Exception:
         pass
-    return artifact_result(store, project_id, operation, records)
+    return artifact_result(active_s, project_id, operation, records)
 
 
 @mcp.tool(name="workflow.preflight", description='Check technical readiness, voice-model availability and redraw capability. Readiness is not musical approval.' + "\n\n" + MUSIC_REVIEW_RULES)
@@ -449,6 +487,165 @@ def mix_master(
     )
 
 
+def _resolve_rating_target(version_id: str, project_id: str | None = None) -> tuple[str, str | None]:
+    """Resolve (project_id, task_id) for an artifact_id or task_id, or raise TaskNotFound."""
+    vid = (version_id or "").strip()
+    if not vid:
+        raise TaskNotFound("NOT_FOUND: version_id is required")
+    active_t = _active_tasks()
+    active_s = _active_store()
+    matched_task = active_t.find_by_artifact_or_task(vid)
+    if matched_task is not None:
+        if project_id and matched_task.get("project_id") != project_id:
+            raise TaskNotFound(f"NOT_FOUND: {vid}")
+        return str(matched_task["project_id"]), str(matched_task["task_id"])
+    try:
+        art = active_s.get(vid, project_id)
+        matched_after = active_t.find_by_artifact_or_task(vid)
+        return art.project_id, (str(matched_after["task_id"]) if matched_after else None)
+    except (ValueError, ArtifactNotFound) as exc:
+        raise TaskNotFound(f"NOT_FOUND: {vid}") from exc
+
+
+@mcp.tool(name="music.rate_content")
+def music_rate_content(
+    version_id: str,
+    rating: str,
+    reason: str | None = None,
+    reasons: list[str] | None = None,
+    rubric_version: str = "rubric v1.0",
+    evaluator_model: str | None = None,
+    project_id: str | None = None,
+) -> types.CallToolResult:
+    """Record content rating (general or nsfw) for a music artifact or task version, including lyrics evaluation rationale. Add-only; cannot clear an existing nsfw rating."""
+    resolved_project_id, resolved_task_id = _resolve_rating_target(version_id, project_id)
+    ratings_store = _active_ratings()
+    res = ratings_store.rate_content(
+        version_id=version_id,
+        project_id=resolved_project_id,
+        rating=rating,
+        reasons=reasons,
+        reason=reason,
+        rubric_version=rubric_version,
+        evaluator_model=evaluator_model,
+        rated_by="skill:k09",
+        task_id=resolved_task_id,
+    )
+    if resolved_task_id:
+        matched_task = _active_tasks().find_by_artifact_or_task(version_id)
+        if matched_task:
+            arts = matched_task.get("artifacts", [])
+            if version_id == resolved_task_id:
+                for art in arts:
+                    aid = art.get("artifact_id")
+                    if aid and aid != version_id:
+                        ratings_store.rate_content(
+                            version_id=aid,
+                            project_id=resolved_project_id,
+                            rating=rating,
+                            reasons=reasons,
+                            reason=reason,
+                            rubric_version=rubric_version,
+                            evaluator_model=evaluator_model,
+                            rated_by="skill:k09",
+                            task_id=resolved_task_id,
+                        )
+            elif len(arts) == 1 and arts[0].get("artifact_id") == version_id:
+                ratings_store.rate_content(
+                    version_id=resolved_task_id,
+                    project_id=resolved_project_id,
+                    rating=rating,
+                    reasons=reasons,
+                    reason=reason,
+                    rubric_version=rubric_version,
+                    evaluator_model=evaluator_model,
+                    rated_by="skill:k09",
+                    task_id=resolved_task_id,
+                )
+    return structured_result(res)
+
+
+@mcp.tool(name="music.status")
+def music_status(task_id: str) -> types.CallToolResult:
+    """Query status and metadata of a music task (NSFW tasks return NOT_FOUND)."""
+    task = _active_tasks().get_task(task_id, include_nsfw=False)
+    arts = task.get("artifacts", [])
+    return structured_result(
+        {
+            "task_id": task["task_id"],
+            "project_id": task.get("project_id"),
+            "operation": task.get("operation"),
+            "status": task.get("status", "completed"),
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+            "duration_seconds": task.get("duration_seconds"),
+            "artifact_id": arts[0]["artifact_id"] if arts else None,
+            "artifacts": arts,
+        }
+    )
+
+
+@mcp.tool(name="music.result")
+def music_result(task_id: str) -> types.CallToolResult:
+    """Retrieve generated music artifacts, LRC lyrics, and download paths for a completed task (NSFW items are excluded)."""
+    task = _active_tasks().get_task(task_id, include_nsfw=False)
+    arts = task.get("artifacts", [])
+    return structured_result(
+        {
+            "task_id": task["task_id"],
+            "project_id": task.get("project_id"),
+            "operation": task.get("operation"),
+            "status": task.get("status", "completed"),
+            "duration_seconds": task.get("duration_seconds"),
+            "lyrics_lrc": task.get("lyrics_lrc"),
+            "artifact_id": arts[0]["artifact_id"] if arts else None,
+            "artifacts": arts,
+        }
+    )
+
+
+@mcp.tool(name="music.list")
+def music_list(
+    project_id: str | None = None,
+    operation: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> types.CallToolResult:
+    """List music tasks and artifacts with pagination (NSFW items are unconditionally excluded)."""
+    records, total = _active_tasks().query_tasks(
+        project_id=project_id,
+        operation=operation,
+        status=status,
+        limit=limit,
+        offset=offset,
+        include_nsfw=False,
+    )
+    return structured_result(
+        {
+            "tasks": records,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+def music_capabilities() -> types.CallToolResult:
+    """Return Music MCP capabilities including content_rating support."""
+    return structured_result(
+        {
+            "service_version": __version__,
+            "content_rating": {
+                "supported": True,
+                "tool": "music.rate_content",
+                "rubric_version": "rubric v1.0",
+                "add_only": True,
+            },
+        }
+    )
+
+
 def _extract_tools_schema() -> list[dict[str, Any]]:
     raw_tools = getattr(getattr(mcp, "_tool_manager", None), "list_tools", lambda: [])()
     items: list[dict[str, Any]] = []
@@ -466,6 +663,7 @@ from .production import register as register_production
 production_jobs = register_production(mcp, executor, _emit_artifact_result)
 
 TOOLS_SCHEMA = _extract_tools_schema()
+MUSIC_TOOLS_SCHEMA = TOOLS_SCHEMA
 registry = EtcdRegistry(domain="music", tools=TOOLS_SCHEMA, version=__version__)
 dashboard = MusicDashboard(
     store=store,
@@ -478,7 +676,7 @@ dashboard = MusicDashboard(
 
 async def health(request: Request) -> JSONResponse:
     try:
-        store.ensure_ready()
+        _active_store().ensure_ready()
     except ArtifactError:
         return JSONResponse({"status": "unavailable", "contract_version": "v1"}, status_code=503)
     return JSONResponse(
@@ -493,8 +691,12 @@ async def health(request: Request) -> JSONResponse:
 
 async def artifact_content(request: Request) -> Response:
     try:
-        record = store.get(request.path_params["artifact_id"])
-        path = store.content_path(record)
+        artifact_id = request.path_params["artifact_id"]
+        include_nsfw = include_nsfw_from_headers(request.headers)
+        if not include_nsfw and _active_tasks().is_artifact_nsfw(artifact_id):
+            return JSONResponse({"error": "artifact_not_found"}, status_code=404)
+        record = _active_store().get(artifact_id)
+        path = _active_store().content_path(record)
     except (ValueError, ArtifactNotFound):
         return JSONResponse({"error": "artifact_not_found"}, status_code=404)
     except ArtifactError:
@@ -502,19 +704,139 @@ async def artifact_content(request: Request) -> Response:
     return FileResponse(path, media_type=record.media_type, filename=record.filename)
 
 
-class BearerAuthMiddleware(BaseHTTPMiddleware):
-    PUBLIC_INTERNAL_PREFIXES = ("/internal/dashboard", "/dashboard", "/api/")
+async def internal_clear_rating(request: Request) -> JSONResponse:
+    version_id = (request.path_params.get("version_id") or "").strip()
+    try:
+        body = await request.json() if await request.body() else {}
+    except Exception:
+        body = {}
+    project_id = body.get("project_id") or request.headers.get("X-Project-Id") or None
+    note = body.get("note") or body.get("reason")
+    actor_id = (
+        request.headers.get("X-User-Id", "").strip()
+        or body.get("actor_user_id")
+        or body.get("actor_id")
+        or "human"
+    )
+    ratings_store = _active_ratings()
+    try:
+        resolved_project_id, resolved_task_id = _resolve_rating_target(version_id, project_id)
+        rec = ratings_store.clear_rating(
+            version_id=version_id,
+            project_id=resolved_project_id,
+            actor_user_id=actor_id,
+            note=note,
+            task_id=resolved_task_id,
+        )
+        matched_task = _active_tasks().find_by_artifact_or_task(version_id)
+        if matched_task:
+            arts = matched_task.get("artifacts", [])
+            if version_id == matched_task.get("task_id"):
+                for art in arts:
+                    aid = art.get("artifact_id")
+                    if aid and aid != version_id:
+                        ratings_store.clear_rating(
+                            version_id=aid,
+                            project_id=resolved_project_id,
+                            actor_user_id=actor_id,
+                            note=note,
+                            task_id=resolved_task_id,
+                        )
+            elif matched_task.get("task_id") and (
+                len(arts) == 1 or ratings_store.get(matched_task["task_id"]).get("rating") != "unrated"
+            ):
+                ratings_store.clear_rating(
+                    version_id=matched_task["task_id"],
+                    project_id=resolved_project_id,
+                    actor_user_id=actor_id,
+                    note=note,
+                    task_id=resolved_task_id,
+                )
+        return JSONResponse(rec)
+    except TaskNotFound:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    except ContentRatingError as exc:
+        return JSONResponse({"error": exc.error_code, "message": exc.message}, status_code=exc.status_code)
 
-    def __init__(self, app: Starlette, token: str | None) -> None:
+
+async def internal_mark_rating(request: Request) -> JSONResponse:
+    version_id = (request.path_params.get("version_id") or "").strip()
+    try:
+        body = await request.json() if await request.body() else {}
+    except Exception:
+        body = {}
+    project_id = body.get("project_id") or request.headers.get("X-Project-Id") or None
+    reason = body.get("reason") or body.get("note")
+    actor_id = (
+        request.headers.get("X-User-Id", "").strip()
+        or body.get("actor_user_id")
+        or body.get("actor_id")
+        or "human"
+    )
+    ratings_store = _active_ratings()
+    try:
+        resolved_project_id, resolved_task_id = _resolve_rating_target(version_id, project_id)
+        rec = ratings_store.mark_rating(
+            version_id=version_id,
+            project_id=resolved_project_id,
+            actor_user_id=actor_id,
+            reason=reason,
+            task_id=resolved_task_id,
+        )
+        matched_task = _active_tasks().find_by_artifact_or_task(version_id)
+        if matched_task:
+            arts = matched_task.get("artifacts", [])
+            if version_id == matched_task.get("task_id"):
+                for art in arts:
+                    aid = art.get("artifact_id")
+                    if aid and aid != version_id:
+                        ratings_store.mark_rating(
+                            version_id=aid,
+                            project_id=resolved_project_id,
+                            actor_user_id=actor_id,
+                            reason=reason,
+                            task_id=resolved_task_id,
+                        )
+            elif len(arts) == 1 and matched_task.get("task_id"):
+                ratings_store.mark_rating(
+                    version_id=matched_task["task_id"],
+                    project_id=resolved_project_id,
+                    actor_user_id=actor_id,
+                    reason=reason,
+                    task_id=resolved_task_id,
+                )
+        return JSONResponse(rec)
+    except TaskNotFound:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    except ContentRatingError as exc:
+        return JSONResponse({"error": exc.error_code, "message": exc.message}, status_code=exc.status_code)
+
+
+class BearerAuthMiddleware(BaseHTTPMiddleware):
+    PUBLIC_INTERNAL_PREFIXES = (
+        "/internal/dashboard",
+        "/music/internal/dashboard",
+        "/dashboard",
+        "/music/dashboard",
+        "/api/",
+        "/music/api/",
+    )
+
+    def __init__(self, app: Starlette, token: str | None = None) -> None:
         super().__init__(app)
         self.token = token
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
-        if path == "/health" or path.startswith(self.PUBLIC_INTERNAL_PREFIXES) or self.token is None:
+        effective_token = (
+            self.token
+            if self.token is not None
+            else (os.environ.get("MUSIC_MCP_BEARER_TOKEN", "").strip() or None)
+        )
+        if path in ("/health", "/music/health") or path.startswith(self.PUBLIC_INTERNAL_PREFIXES) or effective_token is None:
             return await call_next(request)
         authorization = request.headers.get("authorization", "")
-        expected = f"Bearer {self.token}"
+        expected = f"Bearer {effective_token}"
         if not hmac.compare_digest(authorization, expected):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
@@ -522,10 +844,13 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
-    store.ensure_ready()
-    task_store.sync_from_artifacts()
+    _active_store().ensure_ready()
+    _active_ratings().ensure_ready()
+    _active_tasks().sync_from_artifacts()
     await registry.start()
     try:
+        if getattr(mcp.session_manager, "_has_started", False):
+            mcp.session_manager._has_started = False
         async with mcp.session_manager.run():
             yield
     finally:
@@ -535,7 +860,13 @@ async def lifespan(app: Starlette):
 app = Starlette(
     routes=[
         Route("/health", health),
+        Route("/music/health", health),
         Route("/artifacts/{artifact_id:str}/content", artifact_content),
+        Route("/music/artifacts/{artifact_id:str}/content", artifact_content),
+        Route("/internal/content-ratings/{version_id}/clear", internal_clear_rating, methods=["POST"]),
+        Route("/music/internal/content-ratings/{version_id}/clear", internal_clear_rating, methods=["POST"]),
+        Route("/internal/content-ratings/{version_id}/mark", internal_mark_rating, methods=["POST"]),
+        Route("/music/internal/content-ratings/{version_id}/mark", internal_mark_rating, methods=["POST"]),
         *dashboard.routes(),
         Mount(
             "/",
@@ -548,6 +879,11 @@ app = Starlette(
     ],
     lifespan=lifespan,
 )
+app.state.store = store
+app.state.artifacts = store
+app.state.tasks = task_store
+app.state.task_store = task_store
+app.state.ratings = ratings
 app.add_middleware(
     BearerAuthMiddleware,
     token=os.environ.get("MUSIC_MCP_BEARER_TOKEN", "").strip() or None,

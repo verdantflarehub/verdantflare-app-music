@@ -96,6 +96,10 @@ class ServerTest(unittest.TestCase):
                 "voice.convert",
                 "lyrics.align",
                 "mix.master",
+                "music.rate_content",
+                "music.status",
+                "music.result",
+                "music.list",
             },
         )
         properties = {tool.name: set(tool.input_schema["properties"]) for tool in tools}
@@ -176,6 +180,18 @@ class ServerTest(unittest.TestCase):
                     "additional_vocal_gains_db",
                     "vocal_mode",
                 },
+                "music.rate_content": {
+                    "version_id",
+                    "rating",
+                    "reason",
+                    "reasons",
+                    "rubric_version",
+                    "evaluator_model",
+                    "project_id",
+                },
+                "music.status": {"task_id"},
+                "music.result": {"task_id"},
+                "music.list": {"project_id", "operation", "status", "limit", "offset"},
             },
         )
 

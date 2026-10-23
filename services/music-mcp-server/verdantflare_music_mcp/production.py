@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-import fcntl
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows local test environment
+    fcntl = None  # type: ignore[assignment]
 import hashlib
 import io
 import json
@@ -71,13 +74,32 @@ class ProductionJobs:
             if cancel and job["state"] in {"queued", "running"}:
                 job["state"] = "cancelled" if job["state"] == "queued" else "cancelling"
                 self._save(path, job)
-            for item in job.get("artifacts", []):
+            from .content_rating import ContentRatingStore
+            from .tasks import TaskNotFound
+
+            ratings = ContentRatingStore(self.store.root / "tasks.db", domain="music")
+            if ratings.is_nsfw(request_id):
+                raise TaskNotFound(f"NOT_FOUND: {request_id}")
+            raw_artifacts = job.get("artifacts", [])
+            if raw_artifacts:
+                visible_artifacts = [
+                    dict(item)
+                    for item in raw_artifacts
+                    if not ratings.is_nsfw(item.get("artifact_id"))
+                ]
+                if not visible_artifacts:
+                    raise TaskNotFound(f"NOT_FOUND: {request_id}")
+            else:
+                visible_artifacts = []
+            for item in visible_artifacts:
                 item["download_path"] = self.store.download_path(item["artifact_id"])
-            return {
+            out = {
                 k: v
                 for k, v in job.items()
                 if k not in {"epoch", "fingerprint", "config"}
             }
+            out["artifacts"] = visible_artifacts
+            return out
 
     def submit(self, project_id, request_id, operation, config, asset_ids):
         path = self._path(project_id, request_id)
@@ -153,7 +175,8 @@ class ProductionJobs:
     def _run(self, path):
         # Protect shared-volume deployments against concurrent process execution.
         with path.with_suffix(".lock").open("a") as guard:
-            fcntl.flock(guard, fcntl.LOCK_EX)
+            if fcntl is not None:
+                fcntl.flock(guard, fcntl.LOCK_EX)
             with self.lock:
                 job = json.loads(path.read_text())
                 if job["state"] != "queued":
@@ -263,6 +286,12 @@ def register(mcp, executor, emit):
         result["schemas"] = {
             public: result["schemas"][backend]
             for public, backend in BACKEND_OPERATIONS.items()
+        }
+        result["content_rating"] = {
+            "supported": True,
+            "tool": "music.rate_content",
+            "rubric_version": "rubric v1.0",
+            "add_only": True,
         }
         return structured_result(result)
 

@@ -12,6 +12,7 @@ from typing import Any
 import wave
 
 from .artifacts import ArtifactRecord, ArtifactStore
+from .content_rating import ContentRatingStore
 
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
@@ -43,7 +44,7 @@ PROJECT_DISPLAY_NAMES: dict[str, str] = {
 }
 
 
-class TaskNotFound(KeyError):
+class TaskNotFound(KeyError, ValueError):
     pass
 
 
@@ -99,12 +100,27 @@ def _default_title(project_id: str, operation: str, filenames: list[str], voice_
 class TaskStore:
     """Persistent task projection store backed by tasks.json and ArtifactStore discovery."""
 
-    def __init__(self, store: ArtifactStore) -> None:
+    def __init__(self, store: ArtifactStore, ratings: ContentRatingStore | None = None) -> None:
         self.store = store
         self.tasks_file = self.store.root / "tasks.json"
+        self.db_path = self.store.root / "tasks.db"
+        self.ratings = ratings or ContentRatingStore(self.db_path, domain="music")
         self._lock = threading.RLock()
 
+    def _active_ratings(self) -> ContentRatingStore:
+        expected_db = self.store.root / "tasks.db"
+        if self.db_path != expected_db:
+            self.db_path = expected_db
+        if self.ratings is None or self.ratings.db_path != self.db_path:
+            self.ratings = ContentRatingStore(self.db_path, domain="music")
+        return self.ratings
+
+    def ensure_ready(self) -> None:
+        self.store.ensure_ready()
+        self._active_ratings().ensure_ready()
+
     def _load_raw(self) -> dict[str, dict[str, Any]]:
+        self.tasks_file = self.store.root / "tasks.json"
         if not self.tasks_file.is_file():
             return {}
         try:
@@ -117,6 +133,7 @@ class TaskStore:
 
     def _save_raw(self, tasks: dict[str, dict[str, Any]]) -> None:
         self.store.ensure_ready()
+        self.tasks_file = self.store.root / "tasks.json"
         payload = {
             "schema_version": 1,
             "updated_at": datetime.now(UTC).isoformat(),
@@ -326,14 +343,194 @@ class TaskStore:
             self._save_raw(tasks)
             return built
 
-    def list_tasks(self) -> list[dict[str, Any]]:
+    def find_by_artifact_or_task(self, version_id: str) -> dict[str, Any] | None:
+        vid = (version_id or "").strip()
+        if not vid:
+            return None
         with self._lock:
             tasks = self.sync_from_artifacts()
-            items = list(tasks.values())
-            items.sort(key=lambda t: (t.get("created_at", ""), t.get("task_id", "")), reverse=True)
-            return items
+            if vid in tasks:
+                return dict(tasks[vid])
+            items = sorted(
+                tasks.values(),
+                key=lambda t: (t.get("created_at", ""), t.get("task_id", "")),
+                reverse=True,
+            )
+            for t in items:
+                for a in t.get("artifacts", []):
+                    if isinstance(a, dict) and a.get("artifact_id") == vid:
+                        return dict(t)
+        return None
 
-    def get_task(self, task_id: str) -> dict[str, Any]:
+    def is_artifact_nsfw(self, artifact_id: str | None, *, task_id: str | None = None) -> bool:
+        ratings = self._active_ratings()
+        if artifact_id and ratings.is_nsfw(artifact_id):
+            return True
+        if task_id and ratings.is_nsfw(task_id):
+            return True
+        if artifact_id and task_id is None:
+            matched = self.find_by_artifact_or_task(artifact_id)
+            if matched and matched.get("task_id") and ratings.is_nsfw(matched["task_id"]):
+                return True
+        return False
+
+    def is_task_nsfw(self, task: dict[str, Any] | str) -> bool:
+        ratings = self._active_ratings()
+        if isinstance(task, str):
+            with self._lock:
+                raw_tasks = self.sync_from_artifacts()
+                t = raw_tasks.get(task)
+            if t is None:
+                return ratings.is_nsfw(task)
+        else:
+            t = task
+        tid = t.get("task_id")
+        if tid and ratings.is_nsfw(tid):
+            return True
+        arts = [a for a in t.get("artifacts", []) if isinstance(a, dict) and a.get("artifact_id")]
+        if arts and all(ratings.is_nsfw(a["artifact_id"]) for a in arts):
+            return True
+        return False
+
+    def _task_ui_fields(self, task: dict[str, Any], *, can_write: bool = True) -> dict[str, Any]:
+        ratings = self._active_ratings()
+        tid = task.get("task_id")
+        arts = [a for a in task.get("artifacts", []) if isinstance(a, dict) and a.get("artifact_id")]
+        if tid and ratings.get(tid).get("rating") != "unrated":
+            return ratings.ui_fields(tid, task_id=tid, can_write=can_write)
+        for a in arts:
+            aid = a["artifact_id"]
+            if ratings.get(aid).get("rating") == "nsfw":
+                return ratings.ui_fields(aid, task_id=tid, can_write=can_write)
+        for a in arts:
+            aid = a["artifact_id"]
+            if ratings.get(aid).get("rating") != "unrated":
+                return ratings.ui_fields(aid, task_id=tid, can_write=can_write)
+        primary_id = arts[0]["artifact_id"] if arts else tid
+        return ratings.ui_fields(primary_id, task_id=tid, can_write=can_write)
+
+    def _project_task(
+        self,
+        task: dict[str, Any],
+        *,
+        include_nsfw: bool = False,
+        include_ui_fields: bool = False,
+    ) -> dict[str, Any] | None:
+        if not include_nsfw and self.is_task_nsfw(task):
+            return None
+        tid = task.get("task_id")
+        ratings = self._active_ratings()
+        raw_arts = task.get("artifacts", [])
+        projected_arts: list[dict[str, Any]] = []
+        for a in raw_arts:
+            if not isinstance(a, dict):
+                continue
+            aid = a.get("artifact_id")
+            art_nsfw = (bool(aid) and ratings.is_nsfw(aid)) or (bool(tid) and ratings.is_nsfw(tid))
+            if not include_nsfw and art_nsfw:
+                continue
+            art_copy = dict(a)
+            if include_ui_fields and aid:
+                art_copy.update(ratings.ui_fields(aid, task_id=tid, can_write=True))
+            projected_arts.append(art_copy)
+        if raw_arts and not projected_arts and not include_nsfw:
+            return None
+        out = {**task, "artifacts": projected_arts}
+        if projected_arts and out.get("artifact_id") is None:
+            out["artifact_id"] = projected_arts[0].get("artifact_id")
+        if include_ui_fields:
+            out.update(self._task_ui_fields(task, can_write=True))
+        return out
+
+    def list_tasks(
+        self,
+        *,
+        include_nsfw: bool = False,
+        project_id: str | None = None,
+        operation: str | None = None,
+        status: str | None = None,
+        include_ui_fields: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            tasks = self.sync_from_artifacts()
+            raw_items = list(tasks.values())
+            raw_items.sort(key=lambda t: (t.get("created_at", ""), t.get("task_id", "")), reverse=True)
+            out: list[dict[str, Any]] = []
+            for t in raw_items:
+                if project_id and t.get("project_id") != project_id:
+                    continue
+                if operation and t.get("operation") != operation and t.get("workflow") != operation:
+                    continue
+                if status and t.get("status") != status:
+                    continue
+                projected = self._project_task(
+                    t,
+                    include_nsfw=include_nsfw,
+                    include_ui_fields=include_ui_fields,
+                )
+                if projected is not None:
+                    out.append(projected)
+            return out
+
+    def query_tasks(
+        self,
+        *,
+        project_id: str | None = None,
+        operation: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        include_nsfw: bool = False,
+        include_ui_fields: bool = False,
+    ) -> tuple[list[dict[str, Any]], int]:
+        items = self.list_tasks(
+            include_nsfw=include_nsfw,
+            project_id=project_id,
+            operation=operation,
+            status=status,
+            include_ui_fields=include_ui_fields,
+        )
+        total = len(items)
+        return items[offset : offset + limit], total
+
+    def get_stats(
+        self,
+        *,
+        include_nsfw: bool = False,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        items = self.list_tasks(include_nsfw=include_nsfw, project_id=project_id)
+        total = len(items)
+        queued = sum(1 for t in items if t.get("status") == "queued")
+        running = sum(1 for t in items if t.get("status") == "running")
+        completed = sum(1 for t in items if t.get("status") == "completed")
+        failed = sum(1 for t in items if t.get("status") == "failed")
+        canceled = sum(1 for t in items if t.get("status") in {"canceled", "cancelled"})
+        durations = [
+            float(t["duration_seconds"])
+            for t in items
+            if t.get("status") == "completed" and isinstance(t.get("duration_seconds"), (int, float))
+        ]
+        avg_duration = round(sum(durations) / len(durations), 2) if durations else 0.0
+        artifact_count = sum(len(t.get("artifacts", [])) for t in items)
+        return {
+            "total": total,
+            "queued": queued,
+            "running": running,
+            "completed": completed,
+            "failed": failed,
+            "canceled": canceled,
+            "avg_duration": avg_duration,
+            "artifact_count": artifact_count,
+        }
+
+    def get_task(
+        self,
+        task_id: str,
+        *,
+        include_nsfw: bool = False,
+        include_ui_fields: bool = False,
+    ) -> dict[str, Any]:
         value = task_id.strip()
         if not TASK_ID_PATTERN.fullmatch(value):
             raise TaskNotFound(value)
@@ -342,13 +539,24 @@ class TaskStore:
             task = tasks.get(value)
             if task is None:
                 raise TaskNotFound(value)
+            projected = self._project_task(
+                task,
+                include_nsfw=include_nsfw,
+                include_ui_fields=include_ui_fields,
+            )
+            if projected is None:
+                raise TaskNotFound(value)
             # If task has no lyrics_lrc yet, check if project has any aligned LRC artifact
-            if not task.get("lyrics_lrc"):
+            if not projected.get("lyrics_lrc"):
                 for other in tasks.values():
-                    if other.get("project_id") == task.get("project_id") and other.get("lyrics_lrc"):
-                        task = {**task, "lyrics_lrc": other["lyrics_lrc"]}
+                    if other.get("project_id") == projected.get("project_id") and other.get("lyrics_lrc"):
+                        if not include_nsfw and self.is_task_nsfw(other):
+                            continue
+                        projected = {**projected, "lyrics_lrc": other["lyrics_lrc"]}
                         break
-            return task
+            return projected
+
+    get = get_task
 
     def rename_task(self, task_id: str, title: str) -> dict[str, Any]:
         value = task_id.strip()
