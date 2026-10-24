@@ -67,12 +67,22 @@ class DashboardAndTasksTest(unittest.TestCase):
             self.assertIn("object-fit: contain", css_str)
             self.assertIn(".ref-empty-box", css_str)
             self.assertIn(".wave-bars", css_str)
+            self.assertIn(".card-more-btn", css_str)
+            self.assertIn(".card-action-menu", css_str)
+            self.assertIn(".nsfw-badge", css_str)
             self.assertNotIn(".tri-steps", css_str)
 
             mjs_key = next(k for k in assets.files if k.endswith(".mjs"))
             mjs_bytes, _ = assets.asset(mjs_key)
             mjs_str = mjs_bytes.decode("utf-8")
             self.assertIn("Math.pow(rawNorm, 0.7)", mjs_str)
+            self.assertIn("card-more-btn", mjs_str)
+            self.assertIn("card-action-menu", mjs_str)
+            self.assertIn('data-task-action="edit"', mjs_str)
+            self.assertIn('data-task-action="toggle-nsfw"', mjs_str)
+            self.assertIn('data-task-action="delete"', mjs_str)
+            self.assertIn("标记为 18+ (NSFW)", mjs_str)
+            self.assertIn("移除 18+ 标记", mjs_str)
             self.assertNotIn("detail-link", mjs_str)
             self.assertNotIn(">查看<", mjs_str)
             self.assertNotIn("查看模型与渠道详情", mjs_str)
@@ -178,6 +188,45 @@ class DashboardAndTasksTest(unittest.TestCase):
                 self.assertEqual(chunk_resp.status_code, 200)
                 raw_back = base64.b64decode(chunk_resp.json()["data_b64"])
                 self.assertEqual(raw_back, wav_payload)
+
+                # 6. Task card three-dots menu APIs: content-rating (mark & clear) and delete
+                mark_resp = client.post(
+                    f"/api/tasks/{task_id}/content-rating",
+                    json={"action": "mark", "reason": "manual mark from card menu"},
+                )
+                self.assertEqual(mark_resp.status_code, 200)
+                self.assertEqual(
+                    mark_resp.json(),
+                    {
+                        "status": "ok",
+                        "task_id": task_id,
+                        "content_rating": "nsfw",
+                        "rating": "nsfw",
+                    },
+                )
+                # Hidden from default list, visible with X-VF-Include-NSFW: 1
+                self.assertEqual(len(client.get("/api/tasks").json()["tasks"]), 1)
+                inc_tasks = client.get("/api/tasks", headers={"X-VF-Include-NSFW": "1"}).json()["tasks"]
+                self.assertEqual(len(inc_tasks), 2)
+                marked_item = next(t for t in inc_tasks if t["task_id"] == task_id)
+                self.assertEqual(marked_item["content_rating"]["rating"], "nsfw")
+
+                clear_resp = client.post(
+                    f"/music/api/tasks/{task_id}/content-rating",
+                    json={"action": "clear", "reason": "manual clear from card menu"},
+                )
+                self.assertEqual(clear_resp.status_code, 200)
+                self.assertEqual(clear_resp.json()["content_rating"], "general")
+                self.assertEqual(len(client.get("/api/tasks").json()["tasks"]), 2)
+
+                del_resp = client.post(f"/api/tasks/{task_id}/delete", json={})
+                self.assertEqual(del_resp.status_code, 200)
+                self.assertEqual(del_resp.json(), {"status": "deleted", "task_id": task_id})
+                self.assertEqual(len(client.get("/api/tasks").json()["tasks"]), 1)
+                self.assertEqual(client.get(f"/api/tasks/{task_id}").status_code, 404)
+                self.assertEqual(client.delete(f"/music/api/tasks/{task_id}").status_code, 404)
+                # Verify deleted task is not resurrected by sync_from_artifacts
+                self.assertEqual(len(TaskStore(store).list_tasks()), 1)
 
 
 if __name__ == "__main__":

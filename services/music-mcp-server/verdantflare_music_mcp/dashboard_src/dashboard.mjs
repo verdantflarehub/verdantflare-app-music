@@ -356,10 +356,16 @@ function normalizeTask(raw) {
         ]
       : [];
   const refImages = Array.isArray(raw.ref_images) ? raw.ref_images : [];
+  const rawRating =
+    typeof raw.content_rating === "string"
+      ? raw.content_rating
+      : raw.content_rating?.rating || raw.rating || "unrated";
 
   return {
     id,
     title: raw.title || id,
+    contentRating: rawRating,
+    content_rating: rawRating,
     modelLabel: raw.model || "Music MCP",
     channelLabel: raw.channel_label || "本地",
     status: raw.status_label || (raw.status === "running" ? "处理中" : raw.status === "failed" ? "失败" : "已完成"),
@@ -530,6 +536,31 @@ function updateProjectFilterOptions() {
   }
 }
 
+function renderTaskActionMenu(t) {
+  const isNsfw = t.contentRating === "nsfw" || t.content_rating === "nsfw";
+  const nsfwAction = isNsfw ? "clear" : "mark";
+  const nsfwLabel = isNsfw ? "移除 18+ 标记" : "标记为 18+ (NSFW)";
+  return `
+    <div class="card-more-wrap">
+      <button type="button" class="card-more-btn" data-menu-toggle="${esc(t.id)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">···</button>
+      <div class="card-action-menu" role="menu" data-menu-for="${esc(t.id)}" hidden>
+        <button type="button" class="card-action-item" role="menuitem" data-task-action="edit" data-task-id="${esc(t.id)}">编辑</button>
+        <button type="button" class="card-action-item" role="menuitem" data-task-action="toggle-nsfw" data-task-id="${esc(t.id)}" data-nsfw-action="${nsfwAction}">${nsfwLabel}</button>
+        <button type="button" class="card-action-item danger" role="menuitem" data-task-action="delete" data-task-id="${esc(t.id)}">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function closeAllTaskMenus() {
+  document.querySelectorAll(".card-action-menu").forEach((menu) => {
+    menu.hidden = true;
+  });
+  document.querySelectorAll(".card-more-btn[aria-expanded='true']").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
 function renderTaskSection() {
   const q = ($("#searchInput")?.value || "").trim().toLowerCase();
   const ch = $("#channelFilter")?.value || "all";
@@ -592,12 +623,14 @@ function renderTaskSection() {
           <p class="prompt">${esc(t.prompt)}</p>
           <div class="card-foot">
             <div class="tags tabular-nums">
+              ${t.contentRating === "nsfw" || t.content_rating === "nsfw" ? '<span class="nsfw-badge">18+</span>' : ""}
               <span class="type-code" title="${esc(t.typeLabel)}">${esc(t.typeCode)}</span>
               <span>${esc(t.sampleRate)}</span>
               <span>${esc(t.channels)}</span>
               <span>${esc(t.audioLength)}</span>
               <span>${esc(t.format)}</span>
             </div>
+            ${renderTaskActionMenu(t)}
           </div>
         </div>
       </article>
@@ -615,6 +648,7 @@ function renderTaskSection() {
             <th>模式与规格</th>
             <th>创建时间</th>
             <th>状态</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -622,12 +656,13 @@ function renderTaskSection() {
             .map(
               (t) => `
             <tr data-open-task="${esc(t.id)}" tabindex="0" role="button" aria-label="${esc(t.title)}">
-              <td><strong>${esc(t.title)}</strong></td>
+              <td><strong>${esc(t.title)}</strong>${t.contentRating === "nsfw" || t.content_rating === "nsfw" ? ' <span class="nsfw-badge">18+</span>' : ""}</td>
               <td>${esc(t.modelLabel)} × ${esc(t.channelLabel)}</td>
               <td><code>${esc(t.project)}</code></td>
               <td><div class="tags tabular-nums"><span class="type-code" title="${esc(t.typeLabel)}">${esc(t.typeCode)}</span><span>${esc(t.sampleRate)}</span><span>${esc(t.channels)}</span><span>${esc(t.audioLength)}</span><span>${esc(t.format)}</span></div></td>
               <td class="tabular-nums">${esc(t.createdAt)}</td>
               <td>${esc(t.status)}</td>
+              <td class="table-actions-cell">${renderTaskActionMenu(t)}</td>
             </tr>
           `
             )
@@ -1303,6 +1338,91 @@ async function refreshDashboardData(silent = false) {
 
 // Interactive Events
 document.addEventListener("click", async (e) => {
+  const menuToggleBtn = e.target.closest("[data-menu-toggle]");
+  if (menuToggleBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    const wrap = menuToggleBtn.closest(".card-more-wrap");
+    const menu = wrap?.querySelector(".card-action-menu");
+    const wasOpen = menu && !menu.hidden;
+    closeAllTaskMenus();
+    if (menu && !wasOpen) {
+      menu.hidden = false;
+      menuToggleBtn.setAttribute("aria-expanded", "true");
+    }
+    return;
+  }
+
+  const taskActionBtn = e.target.closest("[data-task-action]");
+  if (taskActionBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeAllTaskMenus();
+    const actionType = taskActionBtn.dataset.taskAction;
+    const taskId = taskActionBtn.dataset.taskId;
+    if (!taskId) return;
+    const targetTask = tasks.find((x) => x.id === taskId);
+
+    if (actionType === "edit") {
+      const currentTitle = targetTask?.title || taskId;
+      const rawTitle =
+        typeof window.prompt === "function"
+          ? window.prompt("请输入新的任务标题（1–80 字符）：", currentTitle)
+          : currentTitle;
+      if (rawTitle === null) return;
+      const title = rawTitle.trim();
+      if (!title) {
+        showBanner("任务标题不能为空", true);
+        return;
+      }
+      try {
+        await apiRequest("POST", "/api/tasks/" + encodeURIComponent(taskId) + "/title", { title });
+        await refreshDashboardData(false);
+      } catch (err) {
+        showBanner(`保存标题失败：${err.message || err}`, true);
+      }
+      return;
+    }
+
+    if (actionType === "toggle-nsfw") {
+      const isNsfw = targetTask?.contentRating === "nsfw" || targetTask?.content_rating === "nsfw";
+      const action = isNsfw ? "clear" : "mark";
+      try {
+        await apiRequest("POST", "/api/tasks/" + encodeURIComponent(taskId) + "/content-rating", {
+          action,
+          reason: action === "clear" ? "manual clear from card menu" : "manual mark from card menu",
+        });
+        await refreshDashboardData(false);
+      } catch (err) {
+        showBanner(`更新分级状态失败：${err.message || err}`, true);
+      }
+      return;
+    }
+
+    if (actionType === "delete") {
+      const confirmed =
+        typeof window.confirm === "function"
+          ? window.confirm(`确认删除任务「${targetTask?.title || taskId}」？`)
+          : true;
+      if (!confirmed) return;
+      try {
+        await apiRequest("POST", "/api/tasks/" + encodeURIComponent(taskId) + "/delete", {});
+        await refreshDashboardData(false);
+      } catch (err) {
+        showBanner(`删除任务失败：${err.message || err}`, true);
+      }
+      return;
+    }
+    return;
+  }
+
+  if (e.target.closest(".card-action-menu")) {
+    e.stopPropagation();
+    return;
+  }
+
+  closeAllTaskMenus();
+
   const tabLink = e.target.closest(".app-tab[data-tab]");
   if (tabLink) {
     e.preventDefault();
@@ -1469,6 +1589,12 @@ document.addEventListener("click", async (e) => {
 
 // Keyboard support: Enter/Space on whole-card or whole-row [data-open-task] & Roving Tabindex
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeAllTaskMenus();
+  }
+  if (e.target.closest(".card-more-wrap")) {
+    return;
+  }
   const openTarget = e.target.closest("[data-open-task]");
   if (openTarget && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();

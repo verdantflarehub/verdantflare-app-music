@@ -119,25 +119,50 @@ class TaskStore:
         self.store.ensure_ready()
         self._active_ratings().ensure_ready()
 
-    def _load_raw(self) -> dict[str, dict[str, Any]]:
+    def _load_bundle(self) -> tuple[dict[str, dict[str, Any]], set[str], set[str]]:
         self.tasks_file = self.store.root / "tasks.json"
         if not self.tasks_file.is_file():
-            return {}
+            return {}, set(), set()
         try:
             payload = json.loads(self.tasks_file.read_text(encoding="utf-8"))
-            if isinstance(payload, dict) and isinstance(payload.get("tasks"), dict):
-                return payload["tasks"]
+            if isinstance(payload, dict):
+                tasks = payload.get("tasks") if isinstance(payload.get("tasks"), dict) else {}
+                del_tasks = {
+                    str(x) for x in (payload.get("deleted_task_ids") or []) if isinstance(x, str)
+                }
+                del_arts = {
+                    str(x) for x in (payload.get("deleted_artifact_ids") or []) if isinstance(x, str)
+                }
+                return tasks, del_tasks, del_arts
         except Exception:
             pass
-        return {}
+        return {}, set(), set()
 
-    def _save_raw(self, tasks: dict[str, dict[str, Any]]) -> None:
+    def _load_raw(self) -> dict[str, dict[str, Any]]:
+        tasks, _, _ = self._load_bundle()
+        return tasks
+
+    def _save_raw(
+        self,
+        tasks: dict[str, dict[str, Any]],
+        *,
+        deleted_task_ids: set[str] | None = None,
+        deleted_artifact_ids: set[str] | None = None,
+    ) -> None:
         self.store.ensure_ready()
         self.tasks_file = self.store.root / "tasks.json"
+        if deleted_task_ids is None or deleted_artifact_ids is None:
+            _, prev_del_tasks, prev_del_arts = self._load_bundle()
+            if deleted_task_ids is None:
+                deleted_task_ids = prev_del_tasks
+            if deleted_artifact_ids is None:
+                deleted_artifact_ids = prev_del_arts
         payload = {
             "schema_version": 1,
             "updated_at": datetime.now(UTC).isoformat(),
             "tasks": tasks,
+            "deleted_task_ids": sorted(deleted_task_ids),
+            "deleted_artifact_ids": sorted(deleted_artifact_ids),
         }
         data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         fd, tmp_name = tempfile.mkstemp(prefix=".tasks-", dir=self.store.root)
@@ -172,8 +197,8 @@ class TaskStore:
 
     def sync_from_artifacts(self) -> dict[str, dict[str, Any]]:
         with self._lock:
-            tasks = self._load_raw()
-            indexed_artifacts: set[str] = set()
+            tasks, deleted_task_ids, deleted_artifact_ids = self._load_bundle()
+            indexed_artifacts: set[str] = set(deleted_artifact_ids)
             for task in tasks.values():
                 for art in task.get("artifacts", []):
                     if isinstance(art, dict) and isinstance(art.get("artifact_id"), str):
@@ -207,7 +232,7 @@ class TaskStore:
                 digest_seed = "|".join(r.artifact_id for r in group)
                 short_hash = hashlib.sha256(digest_seed.encode("utf-8")).hexdigest()[:12]
                 task_id = f"task_{short_hash}"
-                if task_id in tasks:
+                if task_id in tasks or task_id in deleted_task_ids:
                     continue
                 tasks[task_id] = self._build_task_dict(
                     task_id=task_id,
@@ -219,7 +244,11 @@ class TaskStore:
                 changed = True
 
             if changed:
-                self._save_raw(tasks)
+                self._save_raw(
+                    tasks,
+                    deleted_task_ids=deleted_task_ids,
+                    deleted_artifact_ids=deleted_artifact_ids,
+                )
             return tasks
 
     def _build_task_dict(
@@ -396,25 +425,35 @@ class TaskStore:
         ratings = self._active_ratings()
         tid = task.get("task_id")
         arts = [a for a in task.get("artifacts", []) if isinstance(a, dict) and a.get("artifact_id")]
+        selected: dict[str, Any] | None = None
         if tid and ratings.get(tid).get("rating") != "unrated":
-            return ratings.ui_fields(tid, task_id=tid, can_write=can_write)
-        for a in arts:
-            aid = a["artifact_id"]
-            if ratings.get(aid).get("rating") == "nsfw":
-                return ratings.ui_fields(aid, task_id=tid, can_write=can_write)
-        for a in arts:
-            aid = a["artifact_id"]
-            if ratings.get(aid).get("rating") != "unrated":
-                return ratings.ui_fields(aid, task_id=tid, can_write=can_write)
-        primary_id = arts[0]["artifact_id"] if arts else tid
-        return ratings.ui_fields(primary_id, task_id=tid, can_write=can_write)
+            selected = ratings.ui_fields(tid, task_id=tid, can_write=can_write)
+        if selected is None:
+            for a in arts:
+                aid = a["artifact_id"]
+                if ratings.get(aid).get("rating") == "nsfw":
+                    selected = ratings.ui_fields(aid, task_id=tid, can_write=can_write)
+                    break
+        if selected is None:
+            for a in arts:
+                aid = a["artifact_id"]
+                if ratings.get(aid).get("rating") != "unrated":
+                    selected = ratings.ui_fields(aid, task_id=tid, can_write=can_write)
+                    break
+        if selected is None:
+            primary_id = arts[0]["artifact_id"] if arts else tid
+            selected = ratings.ui_fields(primary_id, task_id=tid, can_write=can_write)
+        ui = dict(selected)
+        rating_val = ui.get("content_rating", {}).get("rating", "unrated")
+        ui["rating"] = rating_val
+        return ui
 
     def _project_task(
         self,
         task: dict[str, Any],
         *,
         include_nsfw: bool = False,
-        include_ui_fields: bool = False,
+        include_ui_fields: bool = True,
     ) -> dict[str, Any] | None:
         if not include_nsfw and self.is_task_nsfw(task):
             return None
@@ -449,7 +488,7 @@ class TaskStore:
         project_id: str | None = None,
         operation: str | None = None,
         status: str | None = None,
-        include_ui_fields: bool = False,
+        include_ui_fields: bool = True,
     ) -> list[dict[str, Any]]:
         with self._lock:
             tasks = self.sync_from_artifacts()
@@ -481,7 +520,7 @@ class TaskStore:
         limit: int = 50,
         offset: int = 0,
         include_nsfw: bool = False,
-        include_ui_fields: bool = False,
+        include_ui_fields: bool = True,
     ) -> tuple[list[dict[str, Any]], int]:
         items = self.list_tasks(
             include_nsfw=include_nsfw,
@@ -529,7 +568,7 @@ class TaskStore:
         task_id: str,
         *,
         include_nsfw: bool = False,
-        include_ui_fields: bool = False,
+        include_ui_fields: bool = True,
     ) -> dict[str, Any]:
         value = task_id.strip()
         if not TASK_ID_PATTERN.fullmatch(value):
@@ -576,3 +615,77 @@ class TaskStore:
             tasks[value] = task
             self._save_raw(tasks)
             return task
+
+    def delete_task(self, task_id: str) -> dict[str, Any]:
+        value = task_id.strip()
+        if not TASK_ID_PATTERN.fullmatch(value):
+            raise TaskNotFound(value)
+        with self._lock:
+            self.sync_from_artifacts()
+            tasks, deleted_task_ids, deleted_artifact_ids = self._load_bundle()
+            task = tasks.get(value)
+            if task is None:
+                raise TaskNotFound(value)
+            del tasks[value]
+            deleted_task_ids.add(value)
+            for art in task.get("artifacts", []):
+                if isinstance(art, dict) and isinstance(art.get("artifact_id"), str):
+                    deleted_artifact_ids.add(art["artifact_id"])
+            self._save_raw(
+                tasks,
+                deleted_task_ids=deleted_task_ids,
+                deleted_artifact_ids=deleted_artifact_ids,
+            )
+            return {"status": "deleted", "task_id": value}
+
+    def set_task_content_rating(
+        self,
+        task_id: str,
+        *,
+        action: str,
+        reason: str | None = None,
+        actor_user_id: str = "studio-user",
+    ) -> dict[str, Any]:
+        value = task_id.strip()
+        if not TASK_ID_PATTERN.fullmatch(value):
+            raise TaskNotFound(value)
+        clean_action = str(action or "").strip().lower()
+        if clean_action not in ("mark", "clear"):
+            raise ValueError("action must be 'mark' or 'clear'")
+        with self._lock:
+            tasks = self.sync_from_artifacts()
+            task = tasks.get(value)
+            if task is None:
+                raise TaskNotFound(value)
+            project_id = str(task.get("project_id") or "default")
+            ratings = self._active_ratings()
+            target_ids: list[str] = [value]
+            for art in task.get("artifacts", []):
+                if isinstance(art, dict) and isinstance(art.get("artifact_id"), str):
+                    aid = art["artifact_id"]
+                    if aid not in target_ids:
+                        target_ids.append(aid)
+            for vid in target_ids:
+                if clean_action == "mark":
+                    ratings.mark_rating(
+                        version_id=vid,
+                        project_id=project_id,
+                        actor_user_id=actor_user_id,
+                        reason=reason or "manual mark from card menu",
+                        task_id=value,
+                    )
+                else:
+                    ratings.clear_rating(
+                        version_id=vid,
+                        project_id=project_id,
+                        actor_user_id=actor_user_id,
+                        note=reason or "manual clear from card menu",
+                        task_id=value,
+                    )
+            new_rating = "nsfw" if clean_action == "mark" else "general"
+            return {
+                "status": "ok",
+                "task_id": value,
+                "content_rating": new_rating,
+                "rating": new_rating,
+            }

@@ -19,7 +19,7 @@ from starlette.routing import Route
 
 from . import __version__
 from .artifacts import ArtifactError, ArtifactNotFound, ArtifactStore
-from .content_rating import include_nsfw_from_headers
+from .content_rating import ContentRatingError, include_nsfw_from_headers
 from .dashboard_assets import DashboardAssets, load_or_build_assets
 from .executor import ExecutionError, MusicExecutor
 from .registry import EtcdRegistry
@@ -750,6 +750,48 @@ class MusicDashboard:
             return _error_response("INVALID_TITLE", 400)
         return _json_response({"task": updated})
 
+    async def handle_api_task_delete(self, request: Request) -> JSONResponse:
+        task_id = request.path_params.get("task_id", "")
+        tasks_store = self._active_tasks(request)
+        try:
+            res = await run_in_threadpool(tasks_store.delete_task, task_id)
+        except TaskNotFound:
+            return _error_response("TASK_NOT_FOUND", 404)
+        return _json_response(res)
+
+    async def handle_api_task_content_rating(self, request: Request) -> JSONResponse:
+        task_id = request.path_params.get("task_id", "")
+        tasks_store = self._active_tasks(request)
+        actor = (
+            request.headers.get("x-user-id")
+            or request.headers.get("x-studio-user-id")
+            or "studio-user"
+        )
+        try:
+            raw = await request.body()
+            if len(raw) > 8192:
+                return _error_response("REQUEST_TOO_LARGE", 400)
+            payload = json.loads(raw.decode("utf-8")) if raw else {}
+            if not isinstance(payload, dict):
+                return _error_response("INVALID_ARGUMENT", 400)
+            action = str(payload.get("action") or "").strip().lower()
+            reason = str(payload.get("reason") or payload.get("note") or "").strip() or None
+            res = await run_in_threadpool(
+                lambda: tasks_store.set_task_content_rating(
+                    task_id,
+                    action=action,
+                    reason=reason,
+                    actor_user_id=actor,
+                )
+            )
+        except TaskNotFound:
+            return _error_response("TASK_NOT_FOUND", 404)
+        except ContentRatingError as exc:
+            return _error_response(exc.error_code, exc.status_code)
+        except (ValueError, UnicodeDecodeError):
+            return _error_response("INVALID_ARGUMENT", 400)
+        return _json_response(res)
+
     async def handle_api_model_catalog(self, request: Request) -> JSONResponse:
         catalog = await run_in_threadpool(self.build_model_catalog)
         return _json_response(catalog)
@@ -865,8 +907,14 @@ class MusicDashboard:
             Route("/music/api/tasks/stats", self.handle_api_task_stats, methods=["GET"]),
             Route("/api/tasks/{task_id:str}", self.handle_api_task_detail, methods=["GET"]),
             Route("/music/api/tasks/{task_id:str}", self.handle_api_task_detail, methods=["GET"]),
+            Route("/api/tasks/{task_id:str}", self.handle_api_task_delete, methods=["DELETE"]),
+            Route("/music/api/tasks/{task_id:str}", self.handle_api_task_delete, methods=["DELETE"]),
+            Route("/api/tasks/{task_id:str}/delete", self.handle_api_task_delete, methods=["POST"]),
+            Route("/music/api/tasks/{task_id:str}/delete", self.handle_api_task_delete, methods=["POST"]),
             Route("/api/tasks/{task_id:str}/title", self.handle_api_task_title, methods=["POST"]),
             Route("/music/api/tasks/{task_id:str}/title", self.handle_api_task_title, methods=["POST"]),
+            Route("/api/tasks/{task_id:str}/content-rating", self.handle_api_task_content_rating, methods=["POST"]),
+            Route("/music/api/tasks/{task_id:str}/content-rating", self.handle_api_task_content_rating, methods=["POST"]),
             Route("/api/model-catalog", self.handle_api_model_catalog, methods=["GET"]),
             Route("/music/api/model-catalog", self.handle_api_model_catalog, methods=["GET"]),
             Route("/api/mcp/status", self.handle_api_mcp_status, methods=["GET"]),
