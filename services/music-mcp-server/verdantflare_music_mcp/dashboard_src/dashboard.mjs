@@ -3,16 +3,8 @@ const { appSDK: sdk, dashboardHost: bridge } = window.$wujie?.props || {};
 const localChannelSvg =
   '<svg class="channel-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>';
 
-const sunoChannelSvg =
-  '<svg class="channel-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 15c1.5 1 4.5 1 6 0m-6-6c1.5-1 4.5-1 6 0"/></svg>';
-
-const higgsfieldLogo =
-  '<svg width="14" height="14" class="channel-logo" aria-hidden="true" focusable="false" viewBox="0 0 1355 1355" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="1355" height="1355" rx="363" fill="#D1FE17"/><path d="M1088.73 670.726L1087.95 662.156C1080.52 579.906 1026.99 425.16 878.52 425.16C768.341 425.16 685.111 533.914 611.658 629.796C553.046 706.582 502.264 772.452 446.385 772.452C431.533 770.898 412.391 763.49 400.676 746.73C390.125 731.522 387.392 712.035 392.858 688.649C401.448 651.619 450.686 617.315 502.644 580.677C531.161 561.19 560.472 540.529 580.79 520.651C639.402 464.134 669.094 423.205 669.094 357.336C669.094 291.467 632.76 258.716 602.283 244.682C541.331 216.625 451.862 232.994 394.818 282.114C386.227 289.913 377.625 297.31 369.807 304.328C312.371 355.392 273.696 390.086 185 363.571V470.369C302.605 522.216 401.46 423.205 438.97 377.605C467.878 347.592 498.355 330.049 521.024 330.049H522.2C532.359 330.441 540.95 334.34 547.211 341.357C557.37 353.056 561.279 366.699 559.319 381.896C555.018 413.864 521.808 451.273 460.856 492.203C389.352 540.149 269.799 620.444 260.413 721.399C253.379 793.905 290.889 866.4 349.501 894.458C486.247 959.165 569.477 847.684 657.77 729.969C725.365 639.149 789.443 553.01 878.531 553.01C958.625 553.01 988.318 619.271 988.318 660.982V669.173L980.5 670.726C786.318 705.029 680.429 886.67 680.429 970.473C680.429 1054.28 751.541 1126 839.061 1126C941.433 1126 1068.02 1038.69 1088.34 793.123L1089.12 784.162H1170V670.737H1088.73V670.726ZM982.841 796.62C967.216 943.566 891.804 1012.17 846.095 1012.17C825.385 1012.17 796.477 995.021 796.477 963.064C796.477 927.208 850.003 818.454 970.341 786.106L984.409 782.597L982.841 796.632V796.62Z" fill="black"/></svg>';
-
-function channelLogoFor(channel) {
-  if (channel === "本地") return localChannelSvg;
-  if (channel === "Suno") return sunoChannelSvg;
-  return higgsfieldLogo;
+function channelLogoFor() {
+  return localChannelSvg;
 }
 
 // 0.7 Gamma 48-bar waveform generator
@@ -44,14 +36,15 @@ const DEFAULT_MODELS = [
     biz: "音乐生成",
     title: "MiniMax Music 3",
     modelId: "minimax-music-3-omni-local",
-    desc: "全曲文生音乐候选生成与指定时间窗局部重绘，适合主歌/副歌完整结构编曲与器乐铺底。",
-    specLine: "32kHz WAV · 15–240 秒",
-    caps: ["T2M · 文生音乐", "R2M · 局部重绘"],
-    refQuota: "无需参考音频 (T2M) / 1 轨源音频 (R2M)",
+    status: "ready",
+    desc: "全曲文生音乐候选生成，输出 32kHz / 16-bit 双声道 WAV 并保留自然尾奏，适合主歌/副歌完整结构编曲与器乐铺底。",
+    specLine: "32kHz WAV · 15–200 秒",
+    caps: ["T2M · 文生音乐"],
+    refQuota: "无需参考音频 · 纯文本 Prompt + 歌词驱动",
     maxSize: "≤ 50MB",
-    outputSpecs: ["32kHz", "15–240S", "WAV"],
-    tools: ["music.generate", "music.redraw"],
-    teamScope: "文生音乐 (T2M)、局部时间窗重绘 (R2M) · 32kHz WAV · 15–240 秒",
+    outputSpecs: ["32kHz", "≤ 200S", "WAV"],
+    tools: ["music.generate"],
+    teamScope: "文生音乐 (T2M) · 32kHz WAV · 15–200 秒",
     vendorScope: "sglang-omni (Qwen-7B + DiT/DAV + VAE) · 支持中英文歌词结构控制",
     voices: [],
   },
@@ -61,15 +54,24 @@ const DEFAULT_MODELS = [
     biz: "双人对唱",
     title: "ACE-Step 1.5",
     modelId: "acestep-v15-base-local",
-    desc: "双人对唱分轨编排、统一伴奏主干生成与角色分段干声合成，支持按需唤醒推理。",
-    specLine: "48kHz WAV · 歌词结构驱动",
-    caps: ["DUET · 双人对唱", "R2M · 段落重绘"],
-    refQuota: "伴奏主干 1 轨 + 角色人声干声 2 轨",
+    status: "on_demand",
+    desc: "负责局部区间条件重绘（music.redraw，重绘区间 ≤ 60s）与双人对唱分轨编排（duet.instrumental 无需参考音频，duet.vocal 接收 1 轨伴奏生成单轨人声），支持按需唤醒推理。",
+    specLine: "48kHz WAV · 歌词结构驱动 · 重绘 ≤ 60s",
+    caps: ["DUET · 双人对唱", "R2M · 局部重绘"],
+    refQuota: "duet.instrumental 无需参考音频 / duet.vocal 接收 1 轨伴奏生成单轨人声 / music.redraw 接收 1 轨源音频（重绘区间 ≤ 60s）",
     maxSize: "≤ 50MB",
     outputSpecs: ["48kHz", "30–240S", "WAV"],
-    tools: ["duet.plan", "duet.instrumental", "duet.vocal", "duet.preview"],
-    teamScope: "双人分唱蓝图规划、统一伴奏主干与分角色干声生成 (DUET) · 48kHz WAV",
-    vendorScope: "ACE-Step v1.5 Base · 多段落歌词驱动编曲与局部重绘",
+    tools: [
+      "music.redraw",
+      "music.conditioning_check",
+      "music.extend_resume",
+      "duet.plan",
+      "duet.instrumental",
+      "duet.vocal",
+      "duet.preview",
+    ],
+    teamScope: "局部时间窗重绘 (R2M, ≤ 60s)、双人分唱蓝图规划、统一伴奏主干与分角色单轨干声生成 (DUET) · 48kHz WAV",
+    vendorScope: "ACE-Step v1.5 Base · 多段落歌词驱动编曲与局部条件重绘",
     voices: [],
   },
   {
@@ -78,15 +80,16 @@ const DEFAULT_MODELS = [
     biz: "分轨分离",
     title: "UVR5 RoFormer",
     modelId: "mel-band-roformer-big-beta4",
-    desc: "高保真伴奏与人声干声分离、去混响与和声剥离，为 RVC 翻唱与母带重混提供洁净干声。",
-    specLine: "44.1kHz WAV · 伴奏/人声/去混响",
+    status: "ready",
+    desc: "高保真伴奏与人声干声分离及独立去混响管线，输出 48kHz / 24-bit WAV 伴奏、干声、湿声与混响残差四轨（可选和声分离需显式配置 UVR5_BACKING_MODEL_FILENAME）。",
+    specLine: "48kHz / 24-bit WAV · 伴奏/人声/去混响",
     caps: ["STEM · 分轨分离", "Dereverb · 去混响"],
-    refQuota: "输入整曲音频 1 轨（分离伴奏 + 干声）",
+    refQuota: "输入整曲音频 1 轨（分离 48kHz / 24-bit 伴奏 + 干声 + 诊断轨）",
     maxSize: "≤ 50MB",
-    outputSpecs: ["44.1kHz", "≤ 600S", "WAV"],
+    outputSpecs: ["48kHz", "≤ 600S", "WAV"],
     tools: ["stems.separate"],
-    teamScope: "伴奏/人声分离、混响剥离与和声分离 (STEM) · 44.1kHz WAV",
-    vendorScope: "MelBand RoFormer Big Beta4 + Dereverb + Karaoke 级联管线",
+    teamScope: "伴奏/人声分离与独立混响剥离 (STEM) · 48kHz / 24-bit WAV",
+    vendorScope: "MelBand RoFormer Big Beta4 + Dereverb 级联管线（可选和声分离受 UVR5_BACKING_MODEL_FILENAME 控制）",
     voices: [],
   },
   {
@@ -95,6 +98,7 @@ const DEFAULT_MODELS = [
     biz: "声线转换",
     title: "RVC v2",
     modelId: "rvc-v2-hubert-rmvpe-40k",
+    status: "ready",
     desc: "角色声线转换与人声音色权重训练，内置已安装角色声线模型库，默认用于主唱干声替换。",
     specLine: "40kHz / rmvpe · 已安装 2 个人声音色",
     caps: ["RVC · 声线转换", "RMVPE · 基频提取"],
@@ -113,130 +117,127 @@ const DEFAULT_MODELS = [
     id: "local-whisper-small",
     channel: "本地",
     biz: "歌词对齐",
-    title: "Whisper Small",
-    modelId: "faster-whisper-small-align",
-    desc: "已知歌词文本与人声干声强制时间轴对齐，输出行级 LRC 与字级 JSON 时间戳供 MV 消费。",
-    specLine: "LRC 行级 + JSON 字级时间戳",
-    caps: ["LRC · 强制对齐", "DTW · 字级时间戳"],
-    refQuota: "人声干声 1 轨 + 净版歌词文本 1 份",
+    title: "stable-whisper (Whisper Small)",
+    modelId: "stable-whisper-small-align",
+    status: "ready",
+    desc: "基于 stable-whisper (Whisper Small) 将已批准中文（zh）歌词文本与人声干声逐行强制对齐，导出标准行级 Aligned_Lyrics.lrc 时间轴产物。",
+    specLine: "Aligned_Lyrics.lrc · 中文 (zh) 行级强制对齐",
+    caps: ["LRC · 中文强制对齐 (zh)"],
+    refQuota: "人声干声 1 轨 + 中文（zh）净版歌词文本 1 份",
     maxSize: "≤ 50MB",
-    outputSpecs: ["16kHz+", "≤ 600S", "LRC+JSON"],
+    outputSpecs: ["16kHz+", "≤ 600S", "LRC (zh)"],
     tools: ["lyrics.align"],
-    teamScope: "人声干声与净版歌词强制时间轴对齐 (LRC) · 导出 .lrc 与 .json",
-    vendorScope: "faster-whisper (Whisper Small) + DTW 强制对齐管线",
+    teamScope: "人声干声与中文（zh）净版歌词强制时间轴对齐 (LRC) · 导出 Aligned_Lyrics.lrc",
+    vendorScope: "stable-whisper (Whisper Small) 中文行级强制对齐管线",
     voices: [],
   },
   {
     id: "local-pedalboard-mixer",
     channel: "本地",
     biz: "母带混音",
-    title: "Pedalboard Mixer",
+    title: "Pedalboard + Production DSP",
     modelId: "pedalboard-ffmpeg-loudnorm",
-    desc: "多轨空间混音、人声均衡混响与母带动态压限，统一按 -14 LUFS 响度标准交付成片。",
-    specLine: "48kHz WAV · -14 LUFS 母带交付",
-    caps: ["MIX · 多轨混音", "-14 LUFS · 母带归一"],
-    refQuota: "伴奏轨 1 轨 + 角色人声干声 1–2 轨",
+    status: "ready",
+    desc: "集成 WORLD 独立音高修音、VF Synth 合成器分轨渲染、Production DSP 人声效果链与多轨预混，以及 Pedalboard + FFmpeg -14 LUFS 母带响度归一交付。",
+    specLine: "48kHz WAV · WORLD / VF Synth / Production DSP / -14 LUFS",
+    caps: ["MIX · 多轨混音", "-14 LUFS · 母带归一", "WORLD · 独立修音", "VF Synth · 合成器渲染", "Production DSP · 效果链"],
+    refQuota: "伴奏轨 1 轨 + 角色人声干声 1–2 轨（预混最高 16 轨）",
     maxSize: "≤ 50MB",
     outputSpecs: ["48kHz", "≤ 600S", "WAV"],
-    tools: ["mix.master"],
-    teamScope: "人声+伴奏多轨混音、均衡/混响/压限与 -14 LUFS 响度归一化 (MIX)",
-    vendorScope: "Spotify Pedalboard + ffmpeg EBU R128 Loudnorm",
-    voices: [],
-  },
-  {
-    id: "higgs-minimax-music3",
-    channel: "Higgsfield",
-    biz: "音乐生成",
-    title: "MiniMax Music 3",
-    modelId: "higgsfield-minimax-music-3",
-    desc: "云端高并发整曲文生音乐与风格化配乐候选生成，适合多候选快速比选与商业曲风探索。",
-    specLine: "44.1kHz WAV · 30–240 秒",
-    caps: ["T2M · 云端文生音乐"],
-    refQuota: "支持参考曲风音频 0–1 轨",
-    maxSize: "≤ 50MB",
-    outputSpecs: ["44.1kHz", "30–240S", "WAV"],
-    tools: ["music.generate"],
-    teamScope: "云端文生音乐候选生成 (T2M) · 44.1kHz WAV · 30–240 秒",
-    vendorScope: "Higgsfield Audio Generation API · 支持商业曲风标签与完整歌词段落输入",
-    voices: [],
-  },
-  {
-    id: "higgs-suno-v45",
-    channel: "Higgsfield",
-    biz: "音乐生成",
-    title: "Suno v4.5 Studio",
-    modelId: "higgsfield-suno-v4-5",
-    desc: "流行、摇滚与电子编曲整曲生成，适合快速生成高完成度旋律小样与副歌段落参考。",
-    specLine: "44.1kHz WAV · 30–240 秒",
-    caps: ["T2M · 整曲生成", "R2M · 段落续写/重绘"],
-    refQuota: "支持参考音频 0–1 轨 + 封面参考图 0–1 张",
-    maxSize: "≤ 50MB",
-    outputSpecs: ["44.1kHz", "30–240S", "WAV"],
-    tools: ["music.generate", "music.redraw"],
-    teamScope: "整曲小样生成与段落重绘 (T2M / R2M) · 44.1kHz WAV · 30–240 秒",
-    vendorScope: "Higgsfield Suno v4.5 Provider · 支持器乐纯享与人声整曲模式",
+    tools: [
+      "mix.master",
+      "mix.render",
+      "voice.tune",
+      "voice.process",
+      "music.instrument_render",
+      "music.production_capabilities",
+      "music.production_status",
+      "music.production_cancel",
+    ],
+    teamScope: "WORLD 独立修音、VF Synth 合成器渲染、Production DSP 效果链/多轨预混与 -14 LUFS 母带交付 (MIX)",
+    vendorScope: "Spotify Pedalboard + ffmpeg EBU R128 Loudnorm + WORLD + VF Synth + Production DSP",
     voices: [],
   },
 ];
 
 const DEFAULT_MODEL_BY_ID = new Map(DEFAULT_MODELS.map((m) => [m.id, m]));
+DEFAULT_MODEL_BY_ID.set("local-minimax-music-3", DEFAULT_MODELS[0]);
 
 function enrichModel(raw) {
   const fallback = DEFAULT_MODEL_BY_ID.get(raw.id) || {};
   return {
     ...fallback,
     ...raw,
+    status: raw.status || fallback.status || "ready",
     caps: Array.isArray(raw.caps) && raw.caps.length ? raw.caps : fallback.caps || [raw.biz || "MUSIC"],
     refQuota: raw.refQuota || fallback.refQuota || "按工具契约传入参考音轨",
     maxSize: raw.maxSize || fallback.maxSize || "≤ 50MB",
     outputSpecs:
       Array.isArray(raw.outputSpecs) && raw.outputSpecs.length === 3
         ? raw.outputSpecs
-        : fallback.outputSpecs || ["48kHz", "≤ 240S", "WAV"],
+        : fallback.outputSpecs || ["48kHz", "≤ 200S", "WAV"],
   };
 }
 
 const MCP_GROUPS = [
   {
-    title: "1. 工作流预检与素材导入（2 项）",
+    title: "1. 工作流预检、素材导入与任务治理",
     tools: [
-      ["workflow.preflight", "下游模型服务在线探测与声线模型可用性预检"],
+      ["workflow.preflight", "下游模型服务在线探测、声线可用性与局部重绘能力预检"],
       ["asset.import", "S3 授权音频素材 SHA-256 校验与项目持久化导入"],
+      ["music.status", "查询音乐任务运行状态与产物元数据"],
+      ["music.result", "获取已完成音乐任务的音频产物、对齐 LRC 与下载路径"],
+      ["music.list", "分页列举项目音乐任务与持久化产物列表"],
+      ["music.rate_content", "记录音乐产物或任务内容分级（general / nsfw）与歌词评估依据"],
     ],
   },
   {
-    title: "2. 独唱生成与局部重绘（2 项）",
+    title: "2. 独唱生成、局部重绘与续写恢复",
     tools: [
-      ["music.generate", "MiniMax Music 3 整曲文生音乐生成 [T2M]"],
-      ["music.redraw", "指定起止时间窗局部音乐重绘 [R2M]"],
+      ["music.generate", "MiniMax Music 3 整曲文生音乐候选生成（15–200s）[T2M]"],
+      ["music.redraw", "ACE-Step 1.5 指定起止时间窗（≤ 60s）局部条件重绘 [R2M]"],
+      ["music.conditioning_check", "ACE-Step 1.5 局部重绘文本与歌词 Token 预算静态校验（192 / 1800）"],
+      ["music.extend_resume", "从已记录后端任务恢复中断的音乐续写结果"],
     ],
   },
   {
-    title: "3. 双人对唱编排（4 项）",
+    title: "3. 双人对唱编排",
     tools: [
-      ["duet.plan", "双人分唱段落切分与对唱蓝图规划 [DUET]"],
-      ["duet.instrumental", "对唱统一伴奏主干生成 [DUET]"],
-      ["duet.vocal", "角色女声 / 男声独立人声干声生成 [DUET]"],
+      ["duet.plan", "双人分唱段落切分与对唱时间轴蓝图规划 [DUET]"],
+      ["duet.instrumental", "ACE-Step 1.5 对唱统一伴奏主干生成（无需参考音频）[DUET]"],
+      ["duet.vocal", "ACE-Step 1.5 接收 1 轨伴奏生成角色女声 / 男声独立单轨干声 [DUET]"],
       ["duet.preview", "双人干声与伴奏对齐试听合成 [DUET]"],
     ],
   },
   {
-    title: "4. 分轨分离与去混响（1 项）",
-    tools: [["stems.separate", "UVR5 伴奏/人声分离、去混响与和声剥离 [STEM]"]],
+    title: "4. 分轨分离与去混响",
+    tools: [["stems.separate", "UVR5 MelBand RoFormer + Dereverb 48kHz / 24-bit 伴奏与干声分离 [STEM]"]],
   },
   {
-    title: "5. 声线准备、训练与转换（3 项）",
+    title: "5. RVC 声线准备、训练与转换",
     tools: [
-      ["voice.prepare", "干声切片清洗与 RVC 训练集构建 [RVC]"],
-      ["voice.train", "RVC v2 角色人声权重训练 [RVC]"],
-      ["voice.convert", "使用已安装音色 ID 转换主唱干声 [RVC]"],
+      ["voice.prepare", "干声切片清洗与 RVC 确定性训练集构建 [RVC]"],
+      ["voice.train", "RVC v2 角色人声权重与索引训练 [RVC]"],
+      ["voice.convert", "使用已安装音色 ID 转换主唱干声（40kHz / rmvpe）[RVC]"],
     ],
   },
   {
-    title: "6. 歌词对齐与母带混音（2 项）",
+    title: "6. WORLD 修音、VF Synth 与 Production DSP",
     tools: [
-      ["lyrics.align", "Whisper 已知歌词强制对齐并导出 LRC [LRC]"],
-      ["mix.master", "多轨均衡/混响/压限与 -14 LUFS 母带交付 [MIX]"],
+      ["voice.tune", "WORLD 引擎独立音高修音与共振峰保持 [WORLD / TUNE]"],
+      ["voice.process", "Production DSP 有序人声效果链与 Vocoder 调制 [Production DSP / FX]"],
+      ["music.instrument_render", "VF Synth 基于 MIDI 音符、包络与滤波器渲染合成器分轨 [VF Synth / SYNTH]"],
+      ["mix.render", "Production DSP 多轨显式预混（不含自动母带压限）[Production DSP / MIX]"],
+      ["music.production_capabilities", "读取 WORLD / VF Synth / Production DSP 实时 JSON Schema 与参数上限"],
+      ["music.production_status", "查询异步 Production DSP 作业状态与持久化产物"],
+      ["music.production_cancel", "取消排队中或运行中的异步 Production DSP 作业"],
+    ],
+  },
+  {
+    title: "7. 歌词强制对齐与母带混音",
+    tools: [
+      ["lyrics.align", "stable-whisper (Whisper Small) 中文（zh）歌词逐行强制对齐并导出 Aligned_Lyrics.lrc [LRC]"],
+      ["mix.master", "Pedalboard + FFmpeg 多轨均衡/混响/压限与 -14 LUFS 母带交付 [MIX]"],
     ],
   },
 ];
@@ -324,7 +325,7 @@ function normalizeTask(raw) {
   const channels = raw.channels || "Stereo";
   const format =
     raw.format ||
-    (raw.operation === "lyrics.align" ? "LRC+JSON" : "WAV");
+    (raw.operation === "lyrics.align" ? "LRC (zh)" : "WAV");
   const rawAudioLen =
     raw.audio_length && raw.audio_length !== "—"
       ? String(raw.audio_length).replace(/s$/i, "S")
@@ -683,6 +684,15 @@ function renderTaskSection() {
 
 // 零冗余模型服务卡片：按渠道分组后卡片内绝不重复出现渠道名称，也绝不放置“查看”按钮
 function renderModelCardHtml(m) {
+  const statusVal = String(m.status || "ready").toLowerCase();
+  const statusLabel =
+    statusVal === "ready"
+      ? "● Ready"
+      : statusVal === "on_demand"
+        ? "◌ 按需唤醒 (On-Demand)"
+        : statusVal === "reserved"
+          ? "○ 规划预留 (Reserved)"
+          : `○ ${statusVal.toUpperCase()}`;
   const voicesHtml =
     m.voices && m.voices.length
       ? `
@@ -705,13 +715,16 @@ function renderModelCardHtml(m) {
       : "";
 
   return `
-    <article class="resource-card">
+    <article class="resource-card" data-model-status="${esc(statusVal)}">
       <div class="resource-head">
         <div>
           <span class="model-biz-label">${esc(m.biz)}</span>
           <h3 style="margin-top:4px;">${esc(m.title)}</h3>
         </div>
-        <code class="model-id-code">${esc(m.modelId)}</code>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <code class="model-id-code">${esc(m.modelId)}</code>
+          <span class="quota-badge${statusVal !== "ready" ? " empty" : ""}" data-status-badge="${esc(statusVal)}">${esc(statusLabel)}</span>
+        </div>
       </div>
       <p>${esc(m.desc)}</p>
       <div class="cap-row">
@@ -740,7 +753,10 @@ function renderModelsSection() {
     return matchQ && matchBiz;
   });
 
-  const channelList = ["全部", "本地", "Higgsfield"];
+  const channelList = ["全部", "本地"];
+  if (!channelList.includes(currentModelChannel)) {
+    currentModelChannel = "全部";
+  }
   if ($("#modelChannelTabs")) {
     $("#modelChannelTabs").innerHTML = channelList
       .map((ch) => {
@@ -753,6 +769,7 @@ function renderModelsSection() {
 
   const filtered = base.filter((m) => currentModelChannel === "全部" || m.channel === currentModelChannel);
   const channelSet = new Set(filtered.map((m) => m.channel));
+  const totalChannelCount = new Set(models.map((m) => m.channel)).size || 1;
   if ($("#modelSummaryLine")) {
     $("#modelSummaryLine").textContent = `当前展示 ${channelSet.size} 个渠道 · ${filtered.length} 个模型`;
   }
@@ -760,19 +777,17 @@ function renderModelsSection() {
     $("#tabModelCount").textContent = String(models.length);
   }
   if ($("#modelSummaryBadge")) {
-    $("#modelSummaryBadge").textContent = `Snapshot · 2 渠道 / ${models.length} 项`;
+    $("#modelSummaryBadge").textContent = `Snapshot · ${totalChannelCount} 渠道 / ${models.length} 项`;
   }
 
   const container = $("#modelChannelSections");
-  const channelOrder = ["本地", "Higgsfield"];
+  const channelOrder = ["本地"];
   container.innerHTML = channelOrder
     .map((channelName) => {
       const groupModels = filtered.filter((m) => m.channel === channelName);
       if (!groupModels.length) return "";
       const channelDesc =
-        channelName === "本地"
-          ? "集群内网受控声学与音乐推理服务（MiniMax Music 3 / ACE-Step 1.5 / UVR5 / RVC v2 / Whisper / Pedalboard）"
-          : "云端高并发整曲生成与商业曲风探索渠道（统一经 Music MCP 适配网关调度）";
+        "集群内网受控声学与音乐推理服务（MiniMax Music 3 / ACE-Step 1.5 / UVR5 RoFormer / RVC v2 / stable-whisper / Pedalboard + WORLD + VF Synth + Production DSP）";
       return `
         <section class="channel-group">
           <header class="channel-group-header">
@@ -794,23 +809,63 @@ function renderModelsSection() {
 }
 
 function renderMcpSection() {
+  const liveTools = Array.isArray(mcpStatus?.tools) ? mcpStatus.tools : [];
+  const liveToolMap = new Map(liveTools.filter((t) => t && t.name).map((t) => [t.name, t]));
+  const seenNames = new Set();
+
+  const renderedGroups = MCP_GROUPS.map((g) => {
+    const items = g.tools
+      .filter(([name]) => liveToolMap.size === 0 || liveToolMap.has(name))
+      .map(([name, defaultDesc]) => {
+        seenNames.add(name);
+        const liveItem = liveToolMap.get(name);
+        const firstLine = String(liveItem?.description || "")
+          .split(/\r?\n/)[0]
+          .trim();
+        return [name, defaultDesc || firstLine || name];
+      });
+    return {
+      title: `${g.title}（${items.length} 项）`,
+      tools: items,
+    };
+  }).filter((g) => g.tools.length > 0);
+
+  const extraTools = liveTools.filter((t) => t && t.name && !seenNames.has(t.name));
+  if (extraTools.length > 0) {
+    renderedGroups.push({
+      title: `${renderedGroups.length + 1}. 扩展动态工具（${extraTools.length} 项）`,
+      tools: extraTools.map((t) => [
+        t.name,
+        String(t.description || "")
+          .split(/\r?\n/)[0]
+          .trim() || t.name,
+      ]),
+    });
+  }
+
+  const defaultToolCount = MCP_GROUPS.reduce((acc, g) => acc + g.tools.length, 0);
+  const toolCount = liveTools.length || defaultToolCount;
+
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.9.16";
+    const ver = mcpStatus.app_version || "0.12.3";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "● 在线 Ready (etcd 已注册)" : "● 在线 Ready";
     if ($("#mcpServiceIdentity")) {
       $("#mcpServiceIdentity").innerHTML =
         `verdantflare-music (v${esc(ver)}) · <span style="color:var(--accent);">${esc(statusText)}</span>`;
     }
-    const toolCount = Array.isArray(mcpStatus.tools) && mcpStatus.tools.length ? mcpStatus.tools.length : 14;
-    if ($("#tabMcpCount")) $("#tabMcpCount").textContent = String(toolCount);
-    if ($("#mcpContractSummary")) {
-      $("#mcpContractSummary").textContent = `6 大业务分组 · 共 ${toolCount} 项工具 · :8001 Authority 授权回读`;
-    }
+  }
+  if ($("#tabMcpCount")) $("#tabMcpCount").textContent = String(toolCount);
+  if ($("#mcpAuthPill")) {
+    $("#mcpAuthPill").textContent = `MCP Token 即调用授权 · ${toolCount} 项工具`;
+  }
+  if ($("#mcpContractSummary")) {
+    $("#mcpContractSummary").textContent = `${renderedGroups.length} 大业务分组 · 共 ${toolCount} 项工具 · :8001 Authority 授权回读`;
   }
 
-  $("#mcpGroupGrid").innerHTML = MCP_GROUPS.map(
-    (g) => `
+  $("#mcpGroupGrid").innerHTML = renderedGroups
+    .map(
+      (g) => `
     <article class="resource-card">
       <div class="resource-head">
         <h3>${esc(g.title)}</h3>
@@ -830,7 +885,8 @@ function renderMcpSection() {
       </div>
     </article>
   `
-  ).join("");
+    )
+    .join("");
   notifyResize();
 }
 
@@ -1161,7 +1217,7 @@ async function renderTaskDetail(taskId) {
       $("#detailRefAudioBody").innerHTML = `
         <div class="ref-empty-box">
           <span>未传入参考音频或分轨干声（0 / 4 轨）</span>
-          <small>不同模型支持上限不同：FFmpeg 母带混音最高支持 4 轨分轨输入，ACE-Step 1.5 支持 2 段参考旋律，RVC / UVR5 支持 1 轨源音频，纯文生 T2M 为 0 轨</small>
+          <small>不同模型支持上限不同：Pedalboard / Production DSP 混音支持伴奏与人声多轨输入，ACE-Step 1.5（duet.instrumental 无需参考音频 / duet.vocal 接收 1 轨伴奏生成单轨人声 / music.redraw 接收 1 轨源音频且重绘区间 ≤ 60s），RVC / UVR5 支持 1 轨源音频，MiniMax Music 3 纯文生 T2M 为 0 轨</small>
         </div>
       `;
     }
@@ -1310,7 +1366,9 @@ async function refreshDashboardData(silent = false) {
     const [dashData, catalogData, mcpData] = await Promise.all([
       apiRequest("GET", "/api/dashboard"),
       apiRequest("GET", "/api/model-catalog").catch(() => null),
-      apiRequest("GET", "/api/mcp/status").catch(() => null),
+      apiRequest("GET", "/api/mcp/status")
+        .catch(() => apiRequest("GET", "/dashboard/api/mcp"))
+        .catch(() => null),
     ]);
 
     if (dashData?.app_version && $("#appVersionBadge")) {

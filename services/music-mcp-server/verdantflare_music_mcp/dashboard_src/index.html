@@ -27,15 +27,15 @@
         <p>生成整曲音乐、双人对唱、分离人声伴奏、转换角色声线与母带混音。</p>
       </div>
       <div class="creation-actions">
-        <span class="physics-pill tabular-nums" id="appVersionBadge">Music MCP · v0.12.2</span>
+        <span class="physics-pill tabular-nums" id="appVersionBadge">Music MCP · v0.12.3</span>
       </div>
     </header>
 
     <!-- Tier 3: Primary Underline Business Tabs (Hidden when entering Task Detail view) -->
     <nav id="appTabs" class="studio-app-tabs" aria-label="Music MCP 一级导航">
       <a class="app-tab active" data-tab="tasks" href="#tasks" aria-current="page">任务 <span class="tab-count tabular-nums" id="tabTaskCount">0</span></a>
-      <a class="app-tab" data-tab="models" href="#models">模型 <span class="tab-count tabular-nums" id="tabModelCount">8</span></a>
-      <a class="app-tab" data-tab="mcp" href="#mcp">MCP <span class="tab-count tabular-nums" id="tabMcpCount">21</span></a>
+      <a class="app-tab" data-tab="models" href="#models">模型 <span class="tab-count tabular-nums" id="tabModelCount">6</span></a>
+      <a class="app-tab" data-tab="mcp" href="#mcp">MCP <span class="tab-count tabular-nums" id="tabMcpCount">26</span></a>
     </nav>
 
     <!-- ==================================================================
@@ -62,7 +62,6 @@
         <select id="channelFilter" aria-label="推理渠道">
           <option value="all">全部渠道</option>
           <option value="本地">本地</option>
-          <option value="Higgsfield">Higgsfield</option>
         </select>
         <select id="projectFilter" aria-label="所属项目">
           <option value="all">全部项目</option>
@@ -206,9 +205,9 @@
       <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div>
           <h2>模型目录（分渠道展示）</h2>
-          <p>分渠道展示音乐与声学模型，不重复外层渠道名、不展示无业务的查看按钮；统一呈现支持能力（T2M / R2M / DUET / STEM / RVC / LRC / MIX）、参考音频配额、RVC 已安装角色声线、单任务最大容量（≤ 50MB）与底部 3 项输出规格胶囊。</p>
+          <p>分渠道展示音乐与声学模型，不重复外层渠道名、不展示无业务的查看按钮；统一呈现支持能力（T2M / R2M / DUET / STEM / RVC / LRC / MIX / WORLD / VF Synth / Production DSP）、参考音频配额、RVC 已安装角色声线、单任务最大容量（≤ 50MB）与底部 3 项输出规格胶囊。</p>
         </div>
-        <span class="physics-pill tabular-nums" id="modelSummaryBadge">Snapshot · 2 渠道 / 8 项</span>
+        <span class="physics-pill tabular-nums" id="modelSummaryBadge">Snapshot · 1 渠道 / 6 项</span>
       </div>
 
       <div class="toolbar">
@@ -225,7 +224,7 @@
           <option value="歌词对齐">歌词对齐</option>
           <option value="母带混音">母带混音</option>
         </select>
-        <span class="tabular-nums" id="modelSummaryLine" style="margin-left:auto;font-size:12px;color:var(--muted)">当前展示 2 个渠道 · 8 个模型</span>
+        <span class="tabular-nums" id="modelSummaryLine" style="margin-left:auto;font-size:12px;color:var(--muted)">当前展示 1 个渠道 · 6 个模型</span>
       </div>
 
       <div class="statuses" id="modelChannelTabs" aria-label="模型渠道筛选"></div>
@@ -239,15 +238,15 @@
       <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
         <div>
           <h2>MCP 服务与能力目录</h2>
-          <p>统一经 Studio 受控入口（STUDIO_MCP_URL）访问，覆盖预检准备、独唱生成、双人对唱、分轨分离、RVC 声线转换与 LRC 母带混音。</p>
+          <p>统一经 Studio 受控入口（STUDIO_MCP_URL）访问，覆盖预检准备、独唱生成、双人对唱、分轨分离、RVC 声线转换、WORLD 独立修音、VF Synth 合成器渲染、Production DSP 效果链/预混与 LRC 母带混音。</p>
         </div>
-        <span class="physics-pill">MCP Token 即调用授权 · 23 项工具</span>
+        <span class="physics-pill tabular-nums" id="mcpAuthPill">MCP Token 即调用授权 · 26 项工具</span>
       </div>
 
       <div class="mcp-contract-strip" aria-label="Music MCP 服务状态与接入契约">
         <div class="mcp-kv">
           <small>服务标识与运行状态</small>
-          <strong id="mcpServiceIdentity">verdantflare-music (v0.12.2) · <span style="color:var(--accent);">● 在线 Ready</span></strong>
+          <strong id="mcpServiceIdentity">verdantflare-music (v0.12.3) · <span style="color:var(--accent);">● 在线 Ready</span></strong>
         </div>
         <div class="mcp-kv">
           <small>外部唯一受控入口</small>
@@ -255,7 +254,7 @@
         </div>
         <div class="mcp-kv">
           <small>能力统计与产物回读契约</small>
-          <strong class="tabular-nums" id="mcpContractSummary">共 23 项工具 · :8001 Authority 授权回读</strong>
+          <strong class="tabular-nums" id="mcpContractSummary">共 26 项工具 · :8001 Authority 授权回读</strong>
         </div>
       </div>
 

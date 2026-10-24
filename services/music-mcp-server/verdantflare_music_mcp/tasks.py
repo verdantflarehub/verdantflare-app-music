@@ -28,11 +28,11 @@ OPERATION_WORKFLOW_MAP: dict[str, tuple[str, str, str, str, str, str]] = {
     "duet.instrumental": ("duet_generate", "合唱伴奏", "ACE-Step 1.5", "DUET", "双人对唱", "48kHz"),
     "duet.vocal": ("duet_generate", "合唱人声", "ACE-Step 1.5", "DUET", "双人对唱", "48kHz"),
     "duet.preview": ("duet_generate", "合唱试听", "ACE-Step 1.5", "DUET", "双人对唱", "48kHz"),
-    "stems.separate": ("stems_separate", "分轨分离", "UVR5 RoFormer", "STEM", "分轨分离", "44.1kHz"),
+    "stems.separate": ("stems_separate", "分轨分离", "UVR5 RoFormer", "STEM", "分轨分离", "48kHz"),
     "voice.prepare": ("voice_training", "声线预处理", "RVC v2", "RVC", "声线转换", "40kHz"),
     "voice.train": ("voice_training", "声线训练", "RVC v2", "RVC", "声线转换", "40kHz"),
     "voice.convert": ("cover", "声线转换", "RVC v2", "RVC", "声线转换", "40kHz"),
-    "lyrics.align": ("full_song", "歌词对齐", "Whisper Small", "LRC", "歌词对齐", "LRC+JSON"),
+    "lyrics.align": ("full_song", "歌词对齐", "stable-whisper (Whisper Small)", "LRC", "歌词对齐", "LRC (zh)"),
     "mix.master": ("full_song", "母带混音", "Pedalboard Mixer", "MIX", "母带混音", "48kHz"),
     "asset.import": ("generate", "素材导入", "Artifact Store", "T2M", "素材导入", "WAV"),
 }
