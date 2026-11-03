@@ -847,7 +847,7 @@ function renderMcpSection() {
   const toolCount = liveTools.length || defaultToolCount;
 
   if (mcpStatus) {
-    const ver = mcpStatus.app_version || "0.12.3";
+    const ver = mcpStatus.app_version || "0.12.4";
     const regOk = mcpStatus.gateway?.registered;
     const statusText = regOk ? "● 在线 Ready (etcd 已注册)" : "● 在线 Ready";
     if ($("#mcpServiceIdentity")) {
