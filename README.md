@@ -11,11 +11,12 @@ VerdantFlare App Music 是部署在 VerdantFlare Station 上的 AI 音乐制作�
 | 服务                       | 职责                                                        |
 | -------------------------- | ----------------------------------------------------------- |
 | `music-mcp-server`         | 暴露可执行音乐制作工具，调用内部服务并持久化项目 Artifact。 |
-| `music-minimax-music3-api` | 提供 MiniMax Music 3 候选歌曲生成 API。                     |
-| `music-uvr5-api`           | 提供音轨分离、去混响、模型加载和任务状态 API。              |
-| `music-rvc-api`            | 提供人声模型训练、模型管理和音色转换 API。                  |
-| `music-lyrics-aligner-api` | 将已批准逐行歌词强制对齐到实际演唱干声。                    |
-| `music-audio-mixer-api`    | 提供混音、母带处理、响度标准化和交付格式编码 API。          |
+| `music-minimax-music3`     | 提供 MiniMax Music 3 候选歌曲生成 API。                     |
+| `music-uvr5`               | 提供音轨分离、去混响、模型加载和任务状态 API。              |
+| `music-rvc`                | 提供人声模型训练、模型管理和音色转换 API。                  |
+| `music-lyrics-aligner`     | 将已批准逐行歌词强制对齐到实际演唱干声。                    |
+| `music-audio-mixer`        | 提供混音、母带处理、响度标准化和交付格式编码 API。          |
+| `music-ace-step`           | 提供 ACE-Step 1.5 局部重绘与纯歌词对唱 API。                |
 
 本仓库不负责 Agent Skill 和 Studio 用户界面：
 
@@ -73,11 +74,12 @@ mix.master
 ├── README.md
 ├── services/
 │   ├── music-mcp-server/
-│   ├── music-minimax-music3-api/
-│   ├── music-uvr5-api/
-│   ├── music-rvc-api/
-│   ├── music-lyrics-aligner-api/
-│   └── music-audio-mixer-api/
+│   ├── music-minimax-music3/
+│   ├── music-uvr5/
+│   ├── music-rvc/
+│   ├── music-lyrics-aligner/
+│   ├── music-audio-mixer/
+│   └── music-ace-step/
 ├── docs/
 │   └── acceptance.md
 └── scripts/
@@ -96,44 +98,45 @@ services/<service>/
 
 服务依赖、镜像构建文件和测试保留在各自服务目录内。直接采用成熟上游运行时的 Music3 服务不重复包装 Python 应用；UVR5、RVC 和 Mixer 只包装 VerdantFlare 所需的受控 HTTP 契约。只有在实际存在需要消除的跨服务重复代码时，才引入共享 Python 包。
 
-`.github/workflows/` 按一个应用一个 YAML 负责测试、构建六个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。本应用仓库不保存集群部署清单；最终声明式部署由 `verdantflare-design` 的 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/` 统一管理。
+`.github/workflows/` 按一个应用一个 YAML 负责测试、构建七个版本化服务镜像并推送镜像仓库，只在 `release` 分支触发。本应用仓库不保存集群部署清单；最终声明式部署由 `verdantflare-design` 的 `deploys/k8s.dev.verdantflarehub.com/verdantflare-app/`（及历史 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/`）统一管理。
 
 UVR5 和 RVC 是由本仓库构建和发布的一等服务。项目可以使用锁定版本的成熟上游实现作为算法依赖，但上游公开的 WebUI、CLI 或容器接口不是 VerdantFlare 的服务契约。
 
 ## 镜像命名
 
-六个服务镜像统一发布到 `verdantflare-app` 镜像仓库，以服务名和语义化版本组成 tag：
+七个服务镜像统一发布到 `verdantflare-app` 镜像仓库，以服务名和语义化版本组成 tag：
 
-| 服务                       | 镜像 tag 格式                     |
-| -------------------------- | --------------------------------- |
-| `music-mcp-server`         | `music-mcp-server-vx.x.x`         |
-| `music-minimax-music3-api` | `music-minimax-music3-api-vx.x.x` |
-| `music-uvr5-api`           | `music-uvr5-api-vx.x.x`           |
-| `music-rvc-api`            | `music-rvc-api-vx.x.x`            |
-| `music-lyrics-aligner-api` | `music-lyrics-aligner-api-vx.x.x` |
-| `music-audio-mixer-api`    | `music-audio-mixer-api-vx.x.x`    |
+| 服务                   | 镜像 tag 格式                 |
+| ---------------------- | ----------------------------- |
+| `music-mcp-server`     | `music-mcp-server-vx.x.x`     |
+| `music-minimax-music3` | `music-minimax-music3-vx.x.x` |
+| `music-uvr5`           | `music-uvr5-vx.x.x`           |
+| `music-rvc`            | `music-rvc-vx.x.x`            |
+| `music-lyrics-aligner` | `music-lyrics-aligner-vx.x.x` |
+| `music-audio-mixer`    | `music-audio-mixer-vx.x.x`    |
+| `music-ace-step`       | `music-ace-step-vx.x.x`       |
 
-例如，MiniMax Music 3 API 的 `0.1.1` 版本使用：
+例如，MiniMax Music 3 服务的 `0.1.5` 版本使用：
 
 ```text
-verdantflare-app:music-minimax-music3-api-v0.1.1
+verdantflare-app:music-minimax-music3-v0.1.5
 ```
 
 版本号遵循 `MAJOR.MINOR.PATCH` 格式。已发布的版本 tag 不得覆盖，生产部署必须引用明确版本，不使用 `latest` 等浮动 tag。
 
 ## 当前实现
 
-`music-minimax-music3-api` v0.1.1 锁定 MiniMax Music 3 模型 Revision 和 SGLang-Omni 0.1.3，按两张可见 CUDA GPU 部署，并修复长提示词的 CFG prefill 配对。服务采用 OpenAI 兼容的 `POST /v1/audio/speech` 和 `GET /health`；官方运行时的预期输出为 32 kHz、16-bit、双声道 WAV。
+`music-minimax-music3` 锁定 MiniMax Music 3 模型 Revision 和 SGLang-Omni，按可见 CUDA GPU 部署，并修复长提示词的 CFG prefill 配对。服务采用 OpenAI 兼容的 `POST /v1/audio/speech` 和 `GET /health`；官方运行时的预期输出为 32 kHz、16-bit、双声道 WAV。
 
-构建、运行、生成请求、资源要求和许可证约束见 [`services/music-minimax-music3-api/README.md`](services/music-minimax-music3-api/README.md)。该版本只完成模型推理边界；项目资产登记、候选任务编排和 MCP 工具不在此服务内实现。
+构建、运行、生成请求、资源要求和许可证约束见 [`services/music-minimax-music3/README.md`](services/music-minimax-music3/README.md)。该版本只完成模型推理边界；项目资产登记、候选任务编排和 MCP 工具不在此服务内实现。
 
-当前已完成静态检查、模型 Revision 核对和冒烟脚本的模拟响应测试。必须在目标服务器完成镜像构建、双 RTX 4090 启动和真实 10 秒生成测试后，才能将该服务标记为已验证。
+当前已完成静态检查、模型 Revision 核对和冒烟脚本的模拟响应测试。必须在目标服务器完成镜像构建、GPU 启动和真实 10 秒生成测试后，才能将该服务标记为已验证。
 
-`music-rvc-api` 提供确定性训练材料准备、同步训练验收、模型发现和音色转换；材料准备不做 AI 修音或生成式增强，模型 ID 不可覆盖，训练返回模型、索引和真实转换得到的 15 秒验证音频。它不包含 WebUI、UVR5 或任务数据库。详见 [`services/music-rvc-api/README.md`](services/music-rvc-api/README.md)。
+`music-rvc` 提供确定性训练材料准备、同步训练验收、模型发现和音色转换；材料准备不做 AI 修音或生成式增强，模型 ID 不可覆盖，训练返回模型、索引和真实转换得到的 15 秒验证音频。它不包含 WebUI、UVR5 或任务数据库。详见 [`services/music-rvc/README.md`](services/music-rvc/README.md)。
 
-`music-uvr5-api` 使用锁定的 `audio-separator`、MelBand Roformer 和独立去混响模型，返回 24-bit/48 kHz 的 `instrumental.wav` 与 `vocal_dry_original.wav`；本地新版另保存湿人声和混响残留供诊断，它们不是独立和声。`music-audio-mixer-api` 使用 Pedalboard 和 FFmpeg 生成母带 WAV、320 kbps MP3，并验证、原样打包调用方提供的 LRC；成都 v0.1.2 可混合经审核的独立和声及多位歌手的人声轨。
+`music-uvr5` 使用锁定的 `audio-separator`、MelBand Roformer 和独立去混响模型，返回 24-bit/48 kHz 的 `instrumental.wav` 与 `vocal_dry_original.wav`；本地新版另保存湿人声和混响残留供诊断，它们不是独立和声。`music-audio-mixer` 使用 Pedalboard 和 FFmpeg 生成母带 WAV、320 kbps MP3，并验证、原样打包调用方提供的 LRC；可混合经审核的独立和声及多位歌手的人声轨。
 
-`music-lyrics-aligner-api` v0.1.0 锁定 Stable Whisper 2.19.1、OpenAI Whisper 20250625 和多语言 `small` 模型，把已批准中文歌词直接强制对齐到实际干声。对齐失败时不回退到原曲时间轴或线性缩放。设计见 [`docs/lyrics-alignment-design.md`](docs/lyrics-alignment-design.md)。
+`music-lyrics-aligner` 锁定 Stable Whisper 2.19.1、OpenAI Whisper 20250625 和多语言 `small` 模型，把已批准中文歌词直接强制对齐到实际干声。对齐失败时不回退到原曲时间轴或线性缩放。设计见 [`docs/lyrics-alignment-design.md`](docs/lyrics-alignment-design.md)。
 
 `music-mcp-server` 成都 v0.8.0 暴露十个可执行 v1 工具。`workflow.preflight` 在执行前检查下游服务、精确人声模型 ID 和 ACE-Step 1.5 重绘服务；`music.redraw` 仅在实际配置编辑后端时可用，提交 repaint、轮询结果、安全下载，并以源帧保证区间外内容不变。`voice.prepare` 将 1–20 个项目录音 Artifact 送入 RVC 的确定性材料准备并持久化逐来源 WAV、训练 WAV、分段和报告；`lyrics.align` 对返回 LRC 执行逐行文字与严格时间戳校验，`voice.convert` 暴露 RVC 的检索率、F0、滤波、响度包络和清辅音保护参数用于可审计的质量返工。它可从配置白名单中的外部 S3/CDN HTTPS origin 流式导入客户音频，并将结果登记到项目范围的持久化 Artifact 存储。`music.generate` 将时长参数解释为生成上限，保存模型自然结束的单个候选 WAV，不裁切或补静音。服务不传输媒体 Base64、不接收宿主机路径，也不向客户端暴露内部服务 URL。公网部署通过显式 Host 与 Origin allowlist 保留 MCP DNS rebinding 防护。具体契约见 [`services/music-mcp-server/README.md`](services/music-mcp-server/README.md)，发布步骤见设计仓库的 `deploys/k8s.cn-chengdu.bc-cloud.com/verdantflare-music/README.md`，端到端输入和验收输出见 [`docs/acceptance.md`](docs/acceptance.md)。
 
@@ -159,7 +162,7 @@ verdantflare-app:music-minimax-music3-api-v0.1.1
 
 部署前必须同时满足：
 
-1. 六个版本镜像均由对应 `release` workflow 成功发布。新版本 `music-mcp-server-v0.8.0`、`music-rvc-api-v0.2.1` 和 `music-lyrics-aligner-api-v0.1.0` 必须先完成流水线。
+1. 版本镜像均由对应 `release` workflow 成功发布（例如 `music-mcp-server-v0.12.5`、`music-rvc-v0.2.4` 和 `music-lyrics-aligner-v0.1.2`）。
 2. Aliyun `wod/verdantflare-app` 中的六个版本镜像可匿名拉取；部署不使用 `imagePullSecrets`。
 3. `hostpath` StorageClass 可用，`10.241.109.7:/data` 至少有 270 GiB 可用容量。
 4. `10.241.109.7` 为 Ready，且至少五张完整 RTX 4090 可用于同时运行 Music3、UVR5、RVC 和歌词对齐。
@@ -196,17 +199,17 @@ kubectl --context chengdu.beagle -n verdantflare-music \
 验收脚本从本机通过端口转发访问五个执行 API；MCP 客户端验证使用第六条端口转发：
 
 ```bash
-kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-minimax-music3-api 8001:8000
-kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-uvr5-api 8002:8000
-kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-rvc-api 8003:8000
-kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-lyrics-aligner-api 8004:8000
-kubectl --context chengdu.beagle -n verdantflare-music \
-  port-forward service/music-audio-mixer-api 8005:8000
-kubectl --context chengdu.beagle -n verdantflare-music \
+kubectl --context dev.verdantflarehub.com -n verdantflare-app \
+  port-forward service/music-minimax-music3 8001:8000
+kubectl --context dev.verdantflarehub.com -n verdantflare-app \
+  port-forward service/music-uvr5 8002:8000
+kubectl --context dev.verdantflarehub.com -n verdantflare-app \
+  port-forward service/music-rvc 8003:8000
+kubectl --context dev.verdantflarehub.com -n verdantflare-app \
+  port-forward service/music-lyrics-aligner 8004:8000
+kubectl --context dev.verdantflarehub.com -n verdantflare-app \
+  port-forward service/music-audio-mixer 8005:8000
+kubectl --context dev.verdantflarehub.com -n verdantflare-app \
   port-forward service/music-mcp-server 8006:8000
 ```
 

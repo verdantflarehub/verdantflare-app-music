@@ -137,13 +137,13 @@ class ServiceURLs:
     def from_environment(cls) -> "ServiceURLs":
         editor = os.environ.get("MUSIC_EDITOR_URL", "").strip().rstrip("/")
         return cls(
-            music3=os.environ.get("MUSIC3_URL", "http://music-minimax-music3-api:8000").rstrip("/"),
-            uvr5=os.environ.get("UVR5_URL", "http://music-uvr5-api:8000").rstrip("/"),
-            rvc=os.environ.get("RVC_URL", "http://music-rvc-api:8000").rstrip("/"),
+            music3=os.environ.get("MUSIC3_URL", "http://music-minimax-music3:8000").rstrip("/"),
+            uvr5=os.environ.get("UVR5_URL", "http://music-uvr5:8000").rstrip("/"),
+            rvc=os.environ.get("RVC_URL", "http://music-rvc:8000").rstrip("/"),
             lyrics_aligner=os.environ.get(
-                "LYRICS_ALIGNER_URL", "http://music-lyrics-aligner-api:8000"
+                "LYRICS_ALIGNER_URL", "http://music-lyrics-aligner:8000"
             ).rstrip("/"),
-            mixer=os.environ.get("MIXER_URL", "http://music-audio-mixer-api:8000").rstrip("/"),
+            mixer=os.environ.get("MIXER_URL", "http://music-audio-mixer:8000").rstrip("/"),
             music_editor=editor or None,
             music_editor_backend=os.environ.get(
                 "MUSIC_EDITOR_BACKEND", "ace_step_v1_5"

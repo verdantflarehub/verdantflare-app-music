@@ -5,8 +5,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG ACESTEP_REV=ca1e85fe9430179831e6bc6be790c332190a3866
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
-LABEL org.opencontainers.image.title="VerdantFlare ACE-Step 1.5 API"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.title="VerdantFlare ACE-Step 1.5"
+LABEL org.opencontainers.image.version="0.1.1"
 LABEL org.opencontainers.image.licenses="MIT"
 
 RUN apt-get update \
@@ -23,7 +23,7 @@ RUN git clone --filter=blob:none https://github.com/ace-step/ACE-Step-1.5.git /a
     && git checkout "${ACESTEP_REV}" \
     && rm -rf .git \
     && uv sync --frozen --no-dev --python python3.11
-COPY NOTICE.upstream.md /usr/share/licenses/music-ace-step-api/NOTICE.upstream.md
+COPY NOTICE.upstream.md /usr/share/licenses/music-ace-step/NOTICE.upstream.md
 
 ENV ACESTEP_API_HOST=0.0.0.0 \
     ACESTEP_API_PORT=8001 \

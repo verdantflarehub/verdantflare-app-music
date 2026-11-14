@@ -208,7 +208,7 @@ class ServerTest(unittest.TestCase):
             result = artifact_result(store, "mengsk-error", "music.generate", [record])
             self.assertIsInstance(result.content[1], types.ResourceLink)
             serialized = json.dumps(result.structured_content)
-            self.assertNotIn("music-minimax-music3-api", serialized)
+            self.assertNotIn("music-minimax-music3", serialized)
             self.assertIn(record.artifact_id, serialized)
 
     def test_tool_call_returns_persisted_resource_links(self) -> None:

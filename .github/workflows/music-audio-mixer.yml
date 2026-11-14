@@ -1,19 +1,19 @@
-name: Music ACE-Step API
+name: Music Audio Mixer
 
 on:
   push:
     branches: [release]
     paths:
-      - services/music-ace-step-api/**
-      - .github/workflows/music-ace-step-api.yml
+      - services/music-audio-mixer/**
+      - .github/workflows/music-audio-mixer.yml
 permissions:
   contents: read
 concurrency:
-  group: music-ace-step-api-release
+  group: music-audio-mixer-release
   cancel-in-progress: false
 env:
-  SERVICE: music-ace-step-api
-  VERSION: 0.1.0
+  SERVICE: music-audio-mixer
+  VERSION: 0.2.1
 
 jobs:
   build:
@@ -49,5 +49,7 @@ jobs:
           provenance: false
           sbom: false
           tags: ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
-          cache-from: type=gha,scope=${{ env.SERVICE }}
+          cache-from: |
+            type=gha,scope=${{ env.SERVICE }}
+            type=gha,scope=music-audio-mixer-api
           cache-to: type=gha,mode=max,scope=${{ env.SERVICE }}

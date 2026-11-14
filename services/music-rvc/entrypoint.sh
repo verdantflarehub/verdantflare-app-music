@@ -35,7 +35,7 @@ import sys
 import torch
 
 if not torch.cuda.is_available():
-    print("music-rvc-api requires a visible CUDA GPU", file=sys.stderr)
+    print("music-rvc requires a visible CUDA GPU", file=sys.stderr)
     raise SystemExit(1)
 PY
 

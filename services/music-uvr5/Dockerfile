@@ -6,8 +6,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
-LABEL org.opencontainers.image.title="VerdantFlare Music UVR5 API"
-LABEL org.opencontainers.image.version="0.1.9"
+LABEL org.opencontainers.image.title="VerdantFlare Music UVR5"
+LABEL org.opencontainers.image.version="0.1.10"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg gcc libsndfile1 \
@@ -17,8 +17,8 @@ WORKDIR /app
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && pip check
-COPY NOTICE.upstream.md /usr/share/licenses/music-uvr5-api/NOTICE.upstream.md
-COPY model-catalog.json /usr/local/share/music-uvr5-api/model-catalog.json
+COPY NOTICE.upstream.md /usr/share/licenses/music-uvr5/NOTICE.upstream.md
+COPY model-catalog.json /usr/local/share/music-uvr5/model-catalog.json
 COPY verdantflare_uvr5 ./verdantflare_uvr5
 COPY entrypoint.sh smoke-test.sh /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/smoke-test.sh

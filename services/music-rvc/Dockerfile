@@ -6,7 +6,7 @@ USER root
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RVC_UPSTREAM_VERSION=2.2.231006
 ARG RVC_COMMIT=9f2f0559e6932c10c48642d404e7d2e771d9db43
-ARG SERVICE_VERSION=0.2.3
+ARG SERVICE_VERSION=0.2.4
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 ARG PYTORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
 
@@ -32,7 +32,7 @@ WORKDIR /workspace
 
 COPY pyproject.toml /tmp/pyproject.toml
 COPY entrypoint.sh /usr/local/bin/music-rvc-entrypoint
-COPY LICENSE.upstream /usr/share/licenses/music-rvc-api/LICENSE.upstream
+COPY LICENSE.upstream /usr/share/licenses/music-rvc/LICENSE.upstream
 COPY verdantflare_rvc /workspace/rvc-api/verdantflare_rvc
 RUN chmod 0755 /usr/local/bin/music-rvc-entrypoint
 

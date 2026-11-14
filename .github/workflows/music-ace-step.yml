@@ -1,45 +1,28 @@
-name: Music Lyrics Aligner API
+name: Music ACE-Step
 
 on:
   push:
     branches: [release]
     paths:
-      - services/music-lyrics-aligner-api/**
-      - .github/workflows/music-lyrics-aligner-api.yml
-
+      - services/music-ace-step/**
+      - .github/workflows/music-ace-step.yml
 permissions:
   contents: read
 concurrency:
-  group: music-lyrics-aligner-api-release
+  group: music-ace-step-release
   cancel-in-progress: false
 env:
-  SERVICE: music-lyrics-aligner-api
+  SERVICE: music-ace-step
   VERSION: 0.1.1
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check and test
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          PYTHONPATH: services/music-lyrics-aligner-api
-        run: |
-          set -euo pipefail
-          shellcheck services/${SERVICE}/*.sh
-          python3 -m pip install --upgrade pip==25.3
-          python3 -m pip install --group services/${SERVICE}/pyproject.toml:test
-          python3 -m unittest discover -s services/${SERVICE}/tests -v
   build:
-    needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - id: image
-        name: Set image metadata
         env:
           REGISTRY_ENDPOINT: ${{ secrets.REGISTRY_ENDPOINT_ALIYUN }}
         run: |
@@ -66,5 +49,7 @@ jobs:
           provenance: false
           sbom: false
           tags: ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
-          cache-from: type=gha,scope=${{ env.SERVICE }}
+          cache-from: |
+            type=gha,scope=${{ env.SERVICE }}
+            type=gha,scope=music-ace-step-api
           cache-to: type=gha,mode=max,scope=${{ env.SERVICE }}

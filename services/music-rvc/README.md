@@ -1,4 +1,4 @@
-# music-rvc-api
+# music-rvc
 
 该目录构建 VerdantFlare Music 的 RVC v2 训练与音色转换服务。服务使用锁定的 RVC 上游实现，通过受控 HTTP API 向智能体和内部服务提供同步训练验收和音色转换，不包含 Gradio、RVC WebUI 或其他 Web 操作界面。
 
@@ -31,7 +31,7 @@
 | PyTorch | `2.4.1` |
 | CUDA | `12.4` |
 | RVC runtime model revision | `e6d0c1a17da07c33557852f9dfa2bd44cc75737d` |
-| 服务镜像 | `verdantflare-app:music-rvc-api-v0.2.1` |
+| 服务镜像 | `verdantflare-app:music-rvc-v0.2.4` |
 
 上游代码和依赖进入镜像；模型与镜像分离。容器首次启动时下载固定 revision 的 HuBERT、RMVPE 和 RVC v2 40 kHz 预训练权重到持久化 runtime 目录，不下载 UVR5 模型。
 上传录音在进入 RVC 上游预处理前统一解码为 40 kHz、单声道、16-bit PCM WAV，因此 API 可接受 FFmpeg 支持的 M4A、MP3、FLAC 和 WAV，而不依赖上传文件扩展名。
@@ -97,8 +97,8 @@ curl --fail --show-error \
 
 ```bash
 docker build \
-  -t verdantflare-app:music-rvc-api-v0.2.1 \
-  services/music-rvc-api
+  -t verdantflare-app:music-rvc-v0.2.4 \
+  services/music-rvc
 ```
 
 国内构建环境可以替换同版本基础镜像和 Python 软件源：
@@ -107,8 +107,8 @@ docker build \
 docker build \
   --build-arg BASE_IMAGE=registry.cn-qingdao.aliyuncs.com/wod/pytorch:2.4.1-cuda12.4-cudnn9-devel \
   --build-arg PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-  -t verdantflare-app:music-rvc-api-v0.2.1 \
-  services/music-rvc-api
+  -t verdantflare-app:music-rvc-v0.2.4 \
+  services/music-rvc
 ```
 
 ## 运行
@@ -121,7 +121,7 @@ docker run --rm \
   --shm-size 8g \
   -p 8000:8000 \
   -v /data/models/rvc:/models/rvc \
-  verdantflare-app:music-rvc-api-v0.2.1
+  verdantflare-app:music-rvc-v0.2.4
 ```
 
 服务固定使用单个 Uvicorn worker，并在进程内串行执行训练和转换，避免 GPU 并发与模型切换冲突。容器没有可见 CUDA GPU、基础权重下载失败或 API 无法启动时会直接失败。
@@ -178,8 +178,8 @@ curl --fail --show-error \
 本地静态测试：
 
 ```bash
-PYTHONPATH=services/music-rvc-api \
-  python3 -m unittest discover -s services/music-rvc-api/tests -v
+PYTHONPATH=services/music-rvc \
+  python3 -m unittest discover -s services/music-rvc/tests -v
 ```
 
 目标 GPU 上安装一个批准的 voice model 并准备不含敏感信息的输入音频，然后执行真实转换：
@@ -187,7 +187,7 @@ PYTHONPATH=services/music-rvc-api \
 ```bash
 MODEL_ID=approved-singer \
 INPUT_FILE=/data/input/vocal.wav \
-  services/music-rvc-api/smoke-test.sh
+  services/music-rvc/smoke-test.sh
 ```
 
 冒烟脚本会检查健康状态、模型发现、转换响应及 WAV 格式。只有镜像构建、GPU 启动和真实转换全部通过后，才能将该服务标记为已验证。

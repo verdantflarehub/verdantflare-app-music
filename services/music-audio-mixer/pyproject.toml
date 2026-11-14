@@ -1,16 +1,17 @@
 [project]
-name = "verdantflare-music-lyrics-aligner-api"
-version = "0.1.1"
-description = "VerdantFlare music-lyrics-aligner-api service"
+name = "verdantflare-music-audio-mixer"
+version = "0.2.1"
+description = "VerdantFlare music-audio-mixer service"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi==0.116.1",
   "numpy==2.2.6",
-  "openai-whisper==20250625",
+  "scipy==1.15.3",
+  "pyworld==0.3.5",
+  "setuptools==78.1.0",
+  "pedalboard==0.9.17",
   "python-multipart==0.0.20",
-  "stable-ts==2.19.1",
-  "torch==2.7.1",
-  "torchaudio==2.7.1",
+  "soundfile==0.13.1",
   "uvicorn==0.35.0",
 ]
 
@@ -21,10 +22,3 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 # Docker and tests run the explicitly copied source via PYTHONPATH.
 py-modules = []
-
-[dependency-groups]
-test = [
-  "fastapi==0.116.1",
-  "httpx==0.28.1",
-  "python-multipart==0.0.20",
-]

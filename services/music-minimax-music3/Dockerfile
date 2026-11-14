@@ -7,8 +7,8 @@ USER root
 ARG UCX_COMMIT=d8e50df6651b9ea5b76f23aee0aefbf053a4137a
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
-LABEL org.opencontainers.image.title="VerdantFlare MiniMax Music 3 API"
-LABEL org.opencontainers.image.version="0.1.4"
+LABEL org.opencontainers.image.title="VerdantFlare MiniMax Music 3"
+LABEL org.opencontainers.image.version="0.1.5"
 LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-MiniMax-Music3-Community"
 
 # SGLang-Omni uses UCX for CUDA-aware tensor transport between pipeline stages.
@@ -37,7 +37,7 @@ COPY pyproject.toml /opt/music3-service/pyproject.toml
 RUN uv pip uninstall --system --break-system-packages flashinfer-cubin; \
     uv pip install --system --break-system-packages --prerelease=allow \
         /opt/music3-service; \
-    python3 -c "import sglang_omni; import importlib.metadata; assert sglang_omni.__version__ == importlib.metadata.requires('verdantflare-music-minimax-music3-api')[0].split('==')[1]"
+    python3 -c "import sglang_omni; import importlib.metadata; assert sglang_omni.__version__ == importlib.metadata.requires('verdantflare-music-minimax-music3')[0].split('==')[1]"
 
 # SGLang-Omni 0.1.3 can split the first Music3 CFG pair when its combined
 # prompt exceeds the default prefill budget.
@@ -53,8 +53,8 @@ RUN python3 /opt/music3-patches/install.py \
     && python3 -m compileall -q /opt/music3-patches
 
 COPY entrypoint.sh /usr/local/bin/music-minimax-music3-entrypoint
-COPY LICENSE.minimax-music3 /usr/share/licenses/music-minimax-music3-api/LICENSE.minimax-music3
-COPY NOTICE.upstream.md /usr/share/licenses/music-minimax-music3-api/NOTICE.upstream.md
+COPY LICENSE.minimax-music3 /usr/share/licenses/music-minimax-music3/LICENSE.minimax-music3
+COPY NOTICE.upstream.md /usr/share/licenses/music-minimax-music3/NOTICE.upstream.md
 RUN chmod 0755 /usr/local/bin/music-minimax-music3-entrypoint
 
 ENV MODEL_PATH=/models/MiniMax-Music3 \

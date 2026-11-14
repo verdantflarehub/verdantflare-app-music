@@ -138,12 +138,12 @@ class MusicDashboard:
 
     def _probe_services(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         service_defs = [
-            ("music3", "music-minimax-music3-api", self.executor.service_urls.music3, "resident", "MiniMax Music 3"),
-            ("ace_step", "music-ace-step-api", self.executor.service_urls.music_editor, "on_demand", "ACE-Step 1.5"),
-            ("uvr5", "music-uvr5-api", self.executor.service_urls.uvr5, "resident", "UVR5 MelBand RoFormer"),
-            ("rvc", "music-rvc-api", self.executor.service_urls.rvc, "resident", "RVC v2 Voice Conversion"),
-            ("lyrics_aligner", "music-lyrics-aligner-api", self.executor.service_urls.lyrics_aligner, "resident", "Stable Whisper Aligner"),
-            ("mixer", "music-audio-mixer-api", self.executor.service_urls.mixer, "resident", "Pedalboard + FFmpeg Mixer"),
+            ("music3", "music-minimax-music3", self.executor.service_urls.music3, "resident", "MiniMax Music 3"),
+            ("ace_step", "music-ace-step", self.executor.service_urls.music_editor, "on_demand", "ACE-Step 1.5"),
+            ("uvr5", "music-uvr5", self.executor.service_urls.uvr5, "resident", "UVR5 MelBand RoFormer"),
+            ("rvc", "music-rvc", self.executor.service_urls.rvc, "resident", "RVC v2 Voice Conversion"),
+            ("lyrics_aligner", "music-lyrics-aligner", self.executor.service_urls.lyrics_aligner, "resident", "Stable Whisper Aligner"),
+            ("mixer", "music-audio-mixer", self.executor.service_urls.mixer, "resident", "Pedalboard + FFmpeg Mixer"),
         ]
         services: list[dict[str, Any]] = []
         for key, k8s_name, url, mode, label in service_defs:

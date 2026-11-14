@@ -3,8 +3,8 @@ FROM docker.io/library/python:3.11.10-slim
 ARG DEBIAN_FRONTEND=noninteractive
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
-LABEL org.opencontainers.image.title="VerdantFlare Music Audio Mixer API"
-LABEL org.opencontainers.image.version="0.2.0"
+LABEL org.opencontainers.image.title="VerdantFlare Music Audio Mixer"
+LABEL org.opencontainers.image.version="0.2.1"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 g++ \
@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && apt-get purge -y g++ \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
-COPY NOTICE.upstream.md /usr/share/licenses/music-audio-mixer-api/NOTICE.upstream.md
+COPY NOTICE.upstream.md /usr/share/licenses/music-audio-mixer/NOTICE.upstream.md
 COPY verdantflare_mixer ./verdantflare_mixer
 COPY entrypoint.sh smoke-test.sh /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/smoke-test.sh

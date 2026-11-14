@@ -6,7 +6,7 @@ import sys
 import torch
 
 if not torch.cuda.is_available():
-    print("music-uvr5-api requires a visible CUDA GPU", file=sys.stderr)
+    print("music-uvr5 requires a visible CUDA GPU", file=sys.stderr)
     raise SystemExit(1)
 PY
 
@@ -48,7 +48,7 @@ install_model_file() {
 }
 
 if [[ ! -f "${UVR5_MODEL_ROOT}/download_checks.json" ]]; then
-    cp /usr/local/share/music-uvr5-api/model-catalog.json \
+    cp /usr/local/share/music-uvr5/model-catalog.json \
         "${UVR5_MODEL_ROOT}/download_checks.json"
 fi
 

@@ -1,4 +1,4 @@
-# music-minimax-music3-api
+# music-minimax-music3
 
 该目录构建 VerdantFlare Music 的 MiniMax Music 3 本地推理镜像。服务直接采用 SGLang-Omni 提供的 OpenAI 兼容语音接口，不在其外层重复实现代理 API。
 
@@ -12,7 +12,7 @@
 | SGLang-Omni          | `0.1.3`                                            |
 | SGLang CUDA 基础镜像 | `lmsysorg/sglang:v0.5.16-cu130`                    |
 | UCX                  | `d8e50df6651b9ea5b76f23aee0aefbf053a4137a`         |
-| 服务镜像             | `verdantflare-app:music-minimax-music3-api-v0.1.1` |
+| 服务镜像             | `verdantflare-app:music-minimax-music3-v0.1.5`     |
 
 模型仓库中供当前 SGLang-Omni 稳定版使用的权重约 28.8 GB，不进入镜像或 Git。容器只下载该运行时实际读取的固定 revision 文件到挂载的模型目录；下载未完整完成时不会启动 API。
 
@@ -35,8 +35,8 @@ RTX 4090 验证环境为自回归阶段设置 `--mem-fraction-static 0.80`；默
 
 ```bash
 docker build \
-  -t verdantflare-app:music-minimax-music3-api-v0.1.1 \
-  services/music-minimax-music3-api
+  -t verdantflare-app:music-minimax-music3-v0.1.5 \
+  services/music-minimax-music3
 ```
 
 ## 运行
@@ -50,7 +50,7 @@ docker run --rm \
   --ipc host \
   -p 8000:8000 \
   -v /data/models/MiniMax-Music3:/models/MiniMax-Music3 \
-  verdantflare-app:music-minimax-music3-api-v0.1.1
+  verdantflare-app:music-minimax-music3-v0.1.5
 ```
 
 目标验证环境使用 Kubernetes context `chengdu.beagle` 和 namespace `verdantflare-music`。最终 Deployment、Service、模型 PVC 和双 GPU 探测 Job
@@ -99,7 +99,7 @@ Walking down the street
 服务启动后执行 10 秒真实推理冒烟测试：
 
 ```bash
-services/music-minimax-music3-api/smoke-test.sh
+services/music-minimax-music3/smoke-test.sh
 ```
 
 脚本会检查健康状态，并验证输出为非空的 32 kHz、16-bit、双声道 WAV。输出默认写入 `/tmp/minimax-music3-smoke.wav`，不得提交到 Git。

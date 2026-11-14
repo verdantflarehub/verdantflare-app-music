@@ -1,4 +1,4 @@
-# Music UVR5 API（草案）
+# Music UVR5（草案）
 
 API-only 的 GPU 音轨分离服务。`POST /v1/audio/stem-separations` 接收 multipart 音频，返回 ZIP：
 
@@ -18,7 +18,7 @@ API-only 的 GPU 音轨分离服务。`POST /v1/audio/stem-separations` 接收 m
 ```bash
 docker run --rm --gpus all -p 8000:8000 \
   -v uvr-models:/models/audio-separator \
-  verdantflare-app:music-uvr5-api-v0.1.4
+  verdantflare-app:music-uvr5-v0.1.10
 ```
 
 当前仅通过静态和单元测试；分离质量、显存占用和处理时间必须在目标 GPU 用 `Demo_Selected.mp3` 实测后验收。

@@ -4,7 +4,7 @@
 
 ## 1. 目标与边界
 
-新增独立的 `music-lyrics-aligner-api`，将已批准的逐行歌词强制对齐到项目内的实际演唱干声，输出 UTF-8 LRC。`music-mcp-server` 新增 `lyrics.align`，只接收项目范围的人声 Artifact ID 和纯歌词文本，并将结果登记为 `Aligned_Lyrics.lrc` Artifact。
+新增独立的 `music-lyrics-aligner`，将已批准的逐行歌词强制对齐到项目内的实际演唱干声，输出 UTF-8 LRC。`music-mcp-server` 新增 `lyrics.align`，只接收项目范围的人声 Artifact ID 和纯歌词文本，并将结果登记为 `Aligned_Lyrics.lrc` Artifact。
 
 本服务不负责自由转写、翻译、改写歌词、混音或母带。不用原曲 LRC 时间轴作 fallback，不为通过校验而线性缩放时间戳，不伪造未对齐成功的歌词行。
 
@@ -82,7 +82,7 @@ MCP Server 必须先用 `project_id` 校验人声 Artifact 的项目归属，再
 
 ## 6. 部署
 
-- 镜像：`music-lyrics-aligner-api-v0.1.0`，单独 release workflow，只在 `release` 分支且路径命中时发布。
+- 镜像：`music-lyrics-aligner-vx.x.x`（如 `music-lyrics-aligner-v0.1.2`），单独 release workflow，只在 `release` 分支且路径命中时发布。
 - 基础镜像：锁定版本的 PyTorch CUDA runtime tag，不使用 digest 或 SHA 镜像标签。
 - 调度：固定到 `10.241.109.7`，由 `hami-scheduler` 申请 1 张完整 RTX 4090，要求 `nvidia.com/gpu.sharing-strategy=none`，不配置显存或核心切分。
 - 资源：request `4 CPU / 16 GiB / 1 GPU`，limit `8 CPU / 32 GiB / 1 GPU`；一个 replica，`Recreate` 策略。

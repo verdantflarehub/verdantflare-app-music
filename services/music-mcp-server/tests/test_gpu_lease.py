@@ -47,7 +47,7 @@ class GpuLeaseTest(unittest.TestCase):
         api = MemoryApi()
         clock = Clock()
         h3 = coordinator("h3", api, clock)
-        music = coordinator("music3", api, clock, "music-minimax-music3-api")
+        music = coordinator("music3", api, clock, "music-minimax-music3")
         h3.try_acquire()
         with self.assertRaises(LeaseBusy):
             music.acquire_for_queue()
@@ -78,16 +78,16 @@ class GpuLeaseTest(unittest.TestCase):
     def test_scale_up_and_idle_scale_down(self) -> None:
         api = MemoryApi()
         clock = Clock()
-        music = coordinator("music3", api, clock, "music-minimax-music3-api")
+        music = coordinator("music3", api, clock, "music-minimax-music3")
         music.acquire_for_queue()
         music.scale_to(1)
-        self.assertEqual(api.get_scale("music-minimax-music3-api"), 1)
+        self.assertEqual(api.get_scale("music-minimax-music3"), 1)
         music.release()
         music.maybe_scale_down()
-        self.assertEqual(api.get_scale("music-minimax-music3-api"), 1)
+        self.assertEqual(api.get_scale("music-minimax-music3"), 1)
         clock.t += 600
         music.maybe_scale_down()
-        self.assertEqual(api.get_scale("music-minimax-music3-api"), 0)
+        self.assertEqual(api.get_scale("music-minimax-music3"), 0)
 
     def test_preflight_distinguishes_scaled_to_zero_without_blocking_wake(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -95,7 +95,7 @@ class GpuLeaseTest(unittest.TestCase):
 
         api = MemoryApi()
         clock = Clock()
-        gpu = coordinator("music3", api, clock, "music-minimax-music3-api")
+        gpu = coordinator("music3", api, clock, "music-minimax-music3")
         executor = MusicExecutor(
             store=None,
             service_urls=ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
@@ -121,7 +121,7 @@ class GpuLeaseTest(unittest.TestCase):
 
         api = MemoryApi()
         clock = Clock()
-        gpu = coordinator("music3", api, clock, "music-minimax-music3-api")
+        gpu = coordinator("music3", api, clock, "music-minimax-music3")
         executor = MusicExecutor(
             store=FakeStore(),
             service_urls=ServiceURLs("http://music", "http://uvr", "http://rvc", "http://align", "http://mix"),
@@ -138,7 +138,7 @@ class GpuLeaseTest(unittest.TestCase):
             max_duration_seconds=10,
         )
         self.assertEqual(len(records), 1)
-        self.assertEqual(api.get_scale("music-minimax-music3-api"), 1)
+        self.assertEqual(api.get_scale("music-minimax-music3"), 1)
         self.assertEqual(api.get_lease("gpu-task-music3")["spec"]["holderIdentity"], "")
         self.assertIn("/v1/audio/speech", seen)
 

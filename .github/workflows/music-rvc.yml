@@ -1,23 +1,23 @@
-name: Music RVC API
+name: Music RVC
 
 on:
   push:
     branches:
       - release
     paths:
-      - services/music-rvc-api/**
-      - .github/workflows/music-rvc-api.yml
+      - services/music-rvc/**
+      - .github/workflows/music-rvc.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: music-rvc-api-release
+  group: music-rvc-release
   cancel-in-progress: false
 
 env:
-  SERVICE: music-rvc-api
-  VERSION: 0.2.3
+  SERVICE: music-rvc
+  VERSION: 0.2.4
 
 jobs:
   check:
@@ -102,7 +102,9 @@ jobs:
           build-args: |
             SERVICE_VERSION=${{ env.VERSION }}
           tags: ${{ steps.image.outputs.image_name }}:${{ steps.image.outputs.image_version }}
-          cache-from: type=gha,scope=${{ env.SERVICE }}
+          cache-from: |
+            type=gha,scope=${{ env.SERVICE }}
+            type=gha,scope=music-rvc-api
           cache-to: type=gha,mode=max,scope=${{ env.SERVICE }}
 
       - name: Image push success

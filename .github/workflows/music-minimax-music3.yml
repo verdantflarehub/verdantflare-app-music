@@ -1,23 +1,23 @@
-name: Music MiniMax Music 3 API
+name: Music MiniMax Music 3
 
 on:
   push:
     branches:
       - release
     paths:
-      - services/music-minimax-music3-api/**
-      - .github/workflows/music-minimax-music3-api.yml
+      - services/music-minimax-music3/**
+      - .github/workflows/music-minimax-music3.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: music-minimax-music3-api-release
+  group: music-minimax-music3-release
   cancel-in-progress: false
 
 env:
-  SERVICE: music-minimax-music3-api
-  VERSION: 0.1.4
+  SERVICE: music-minimax-music3
+  VERSION: 0.1.5
 
 jobs:
   check:
@@ -100,7 +100,9 @@ jobs:
           provenance: false
           sbom: false
           tags: ${{ steps.image.outputs.image_name }}:${{ steps.image.outputs.image_version }}
-          cache-from: type=gha,scope=${{ env.SERVICE }}
+          cache-from: |
+            type=gha,scope=${{ env.SERVICE }}
+            type=gha,scope=music-minimax-music3-api
           cache-to: type=gha,mode=max,scope=${{ env.SERVICE }}
 
       - name: Image push success

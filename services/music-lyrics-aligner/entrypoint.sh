@@ -6,7 +6,7 @@ import sys
 import torch
 
 if not torch.cuda.is_available():
-    print("music-lyrics-aligner-api requires a visible CUDA GPU", file=sys.stderr)
+    print("music-lyrics-aligner requires a visible CUDA GPU", file=sys.stderr)
     raise SystemExit(1)
 PY
 

@@ -55,11 +55,11 @@ GET /artifacts/{artifact_id}/content
 | `MUSIC_DUET_MODEL` | `acestep-v15-base` | 纯歌词对唱使用的 ACE-Step base / xl-base 精确模型名 |
 | `MUSIC_EDITOR_BACKEND` | `ace_step_v1_5` | 重绘适配器类型；当前只接受该值 |
 | `MUSIC_EDITOR_BEARER_TOKEN` | 未设置 | ACE-Step API 启用鉴权时使用的可选 Bearer Token |
-| `MUSIC3_URL` | `http://music-minimax-music3-api:8000` | Music3 API |
-| `UVR5_URL` | `http://music-uvr5-api:8000` | UVR5 API |
-| `RVC_URL` | `http://music-rvc-api:8000` | RVC API |
-| `LYRICS_ALIGNER_URL` | `http://music-lyrics-aligner-api:8000` | 已知歌词强制对齐 API |
-| `MIXER_URL` | `http://music-audio-mixer-api:8000` | Mixer API |
+| `MUSIC3_URL` | `http://music-minimax-music3:8000` | Music3 API |
+| `UVR5_URL` | `http://music-uvr5:8000` | UVR5 API |
+| `RVC_URL` | `http://music-rvc:8000` | RVC API |
+| `LYRICS_ALIGNER_URL` | `http://music-lyrics-aligner:8000` | 已知歌词强制对齐 API |
+| `MIXER_URL` | `http://music-audio-mixer:8000` | Mixer API |
 
 Token 只能通过运行环境注入，不得写入镜像、清单或仓库。
 

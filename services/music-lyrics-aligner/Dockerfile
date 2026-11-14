@@ -6,8 +6,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG PYPI_INDEX_URL=https://pypi.org/simple
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
-LABEL org.opencontainers.image.title="VerdantFlare Music Lyrics Aligner API"
-LABEL org.opencontainers.image.version="0.1.1"
+LABEL org.opencontainers.image.title="VerdantFlare Music Lyrics Aligner"
+LABEL org.opencontainers.image.version="0.1.2"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
@@ -17,7 +17,7 @@ WORKDIR /app
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --index-url "${PYPI_INDEX_URL}" . \
     && pip check
-COPY NOTICE.upstream.md /usr/share/licenses/music-lyrics-aligner-api/NOTICE.upstream.md
+COPY NOTICE.upstream.md /usr/share/licenses/music-lyrics-aligner/NOTICE.upstream.md
 COPY verdantflare_lyrics_aligner ./verdantflare_lyrics_aligner
 COPY entrypoint.sh smoke-test.sh /usr/local/bin/
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/smoke-test.sh
