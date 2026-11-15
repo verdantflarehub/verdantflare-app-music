@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import subprocess
 import threading
@@ -14,6 +15,17 @@ GPU_LOCK = threading.Lock()
 
 class SeparationFailed(RuntimeError):
     pass
+
+
+def clear_cuda_cache() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 class UVR5Service:
@@ -32,6 +44,24 @@ class UVR5Service:
         self.backing_model = backing_model
         self.backing_lead_stem = backing_lead_stem
         self.backing_vocal_stem = backing_vocal_stem
+        self._active_lock = threading.Lock()
+        self._active_tasks = 0
+
+    @property
+    def active_tasks(self) -> int:
+        with self._active_lock:
+            return self._active_tasks
+
+    def evict_idle_vram(self) -> bool:
+        if not GPU_LOCK.acquire(blocking=False):
+            return False
+        try:
+            if self.active_tasks > 0:
+                return False
+            clear_cuda_cache()
+            return True
+        finally:
+            GPU_LOCK.release()
 
     def _separator(self, output_directory: Path):
         from audio_separator.separator import Separator
@@ -78,78 +108,89 @@ class UVR5Service:
         )
 
     def separate(self, source: Path, work_directory: Path) -> Path:
-        with GPU_LOCK:
-            separator = self._separator(work_directory)
-            separator.load_model(model_filename=SEPARATION_MODEL)
-            separated = separator.separate(
-                str(source),
-                custom_output_names={
-                    "Vocals": "vocal_wet",
-                    "Other": "instrumental_raw",
-                },
-            )
-            vocal_wet = self._find_output(separated, "vocal_wet", work_directory)
-            instrumental_raw = self._find_output(separated, "instrumental_raw", work_directory)
-
-            separator.load_model(model_filename=DEREVERB_MODEL)
-            dereverbed = separator.separate(
-                str(vocal_wet),
-                custom_output_names={
-                    "Noreverb": "vocal_dry",
-                    "Reverb": "discarded_reverb",
-                },
-            )
-            vocal_dry = self._find_output(dereverbed, "vocal_dry", work_directory)
-            vocal_reverb = self._find_output(dereverbed, "discarded_reverb", work_directory)
-            if self.backing_model is not None:
-                if not (self.model_root / self.backing_model).is_file():
-                    raise SeparationFailed("configured backing model is not installed")
-                separator.load_model(model_filename=self.backing_model)
-                backing_outputs = separator.separate(
-                    str(vocal_wet),
-                    custom_output_names={
-                        self.backing_lead_stem: "vocal_lead_reference",
-                        self.backing_vocal_stem: "backing_vocals_unreviewed",
-                    },
-                )
-                lead_reference_raw = self._find_output(backing_outputs, "vocal_lead_reference", work_directory)
-                backing_raw = self._find_output(backing_outputs, "backing_vocals_unreviewed", work_directory)
-
-        instrumental = work_directory / "instrumental.wav"
-        vocal = work_directory / "vocal_dry_original.wav"
-        wet = work_directory / "vocal_wet_original.wav"
-        reverb = work_directory / "vocal_reverb_original.wav"
-        extra_files: list[Path] = []
+        with self._active_lock:
+            self._active_tasks += 1
         try:
-            self._normalize(instrumental_raw, instrumental)
-            self._normalize(vocal_dry, vocal)
-            self._normalize(vocal_wet, wet)
-            self._normalize(vocal_reverb, reverb)
-            if self.backing_model is not None:
-                lead_reference = work_directory / "vocal_lead_reference.wav"
-                backing = work_directory / "backing_vocals_unreviewed.wav"
-                self._normalize(lead_reference_raw, lead_reference)
-                self._normalize(backing_raw, backing)
-                extra_files = [lead_reference, backing]
-        except subprocess.CalledProcessError as error:
-            raise SeparationFailed("failed to encode separated stems") from error
+            with GPU_LOCK:
+                separator = None
+                try:
+                    separator = self._separator(work_directory)
+                    separator.load_model(model_filename=SEPARATION_MODEL)
+                    separated = separator.separate(
+                        str(source),
+                        custom_output_names={
+                            "Vocals": "vocal_wet",
+                            "Other": "instrumental_raw",
+                        },
+                    )
+                    vocal_wet = self._find_output(separated, "vocal_wet", work_directory)
+                    instrumental_raw = self._find_output(separated, "instrumental_raw", work_directory)
 
-        manifest = {
-            "sample_rate": 48000,
-            "bit_depth": 24,
-            "separation_model": SEPARATION_MODEL,
-            "dereverb_model": DEREVERB_MODEL,
-            "backing_model": self.backing_model,
-            "backing_requires_review": self.backing_model is not None,
-            "files": [path.name for path in (instrumental, vocal, wet, reverb, *extra_files)],
-        }
-        archive_path = work_directory / "stems.zip"
-        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.write(instrumental, instrumental.name)
-            archive.write(vocal, vocal.name)
-            archive.write(wet, wet.name)
-            archive.write(reverb, reverb.name)
-            for path in extra_files:
-                archive.write(path, path.name)
-            archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
-        return archive_path
+                    separator.load_model(model_filename=DEREVERB_MODEL)
+                    dereverbed = separator.separate(
+                        str(vocal_wet),
+                        custom_output_names={
+                            "Noreverb": "vocal_dry",
+                            "Reverb": "discarded_reverb",
+                        },
+                    )
+                    vocal_dry = self._find_output(dereverbed, "vocal_dry", work_directory)
+                    vocal_reverb = self._find_output(dereverbed, "discarded_reverb", work_directory)
+                    if self.backing_model is not None:
+                        if not (self.model_root / self.backing_model).is_file():
+                            raise SeparationFailed("configured backing model is not installed")
+                        separator.load_model(model_filename=self.backing_model)
+                        backing_outputs = separator.separate(
+                            str(vocal_wet),
+                            custom_output_names={
+                                self.backing_lead_stem: "vocal_lead_reference",
+                                self.backing_vocal_stem: "backing_vocals_unreviewed",
+                            },
+                        )
+                        lead_reference_raw = self._find_output(backing_outputs, "vocal_lead_reference", work_directory)
+                        backing_raw = self._find_output(backing_outputs, "backing_vocals_unreviewed", work_directory)
+                finally:
+                    separator = None
+                    clear_cuda_cache()
+
+            instrumental = work_directory / "instrumental.wav"
+            vocal = work_directory / "vocal_dry_original.wav"
+            wet = work_directory / "vocal_wet_original.wav"
+            reverb = work_directory / "vocal_reverb_original.wav"
+            extra_files: list[Path] = []
+            try:
+                self._normalize(instrumental_raw, instrumental)
+                self._normalize(vocal_dry, vocal)
+                self._normalize(vocal_wet, wet)
+                self._normalize(vocal_reverb, reverb)
+                if self.backing_model is not None:
+                    lead_reference = work_directory / "vocal_lead_reference.wav"
+                    backing = work_directory / "backing_vocals_unreviewed.wav"
+                    self._normalize(lead_reference_raw, lead_reference)
+                    self._normalize(backing_raw, backing)
+                    extra_files = [lead_reference, backing]
+            except subprocess.CalledProcessError as error:
+                raise SeparationFailed("failed to encode separated stems") from error
+
+            manifest = {
+                "sample_rate": 48000,
+                "bit_depth": 24,
+                "separation_model": SEPARATION_MODEL,
+                "dereverb_model": DEREVERB_MODEL,
+                "backing_model": self.backing_model,
+                "backing_requires_review": self.backing_model is not None,
+                "files": [path.name for path in (instrumental, vocal, wet, reverb, *extra_files)],
+            }
+            archive_path = work_directory / "stems.zip"
+            with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.write(instrumental, instrumental.name)
+                archive.write(vocal, vocal.name)
+                archive.write(wet, wet.name)
+                archive.write(reverb, reverb.name)
+                for path in extra_files:
+                    archive.write(path, path.name)
+                archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
+            return archive_path
+        finally:
+            with self._active_lock:
+                self._active_tasks = max(0, self._active_tasks - 1)

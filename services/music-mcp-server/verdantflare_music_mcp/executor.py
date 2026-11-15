@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import audioop
+import contextlib
 import hashlib
 import io
 import json
 import math
 import os
 import re
+import threading
 import time
+import uuid
 import wave
 import zipfile
 from dataclasses import dataclass
@@ -24,7 +27,13 @@ from .artifacts import (
     require_filename,
     require_project_id,
 )
-from .gpu_lease import GpuCoordinator, LeaseBusy
+from .gpu_lease import (
+    GpuCoordinator,
+    LeaseBusy,
+    SCHEDULER_CONSUMER_SPECS,
+    SchedulerError,
+    SchedulerLeaseClient,
+)
 from .conditioning import check as check_conditioning
 from .duet import DuetLine, build_duet_plan, fit_vocal_to_backing, lyrics_for_voice, pcm16_wav, preview_duet, read_duet_plan, validate_vocal_isolation
 
@@ -386,6 +395,7 @@ class MusicExecutor:
         client: httpx.Client | None = None,
         asset_import_origins: frozenset[str] | None = None,
         gpu: GpuCoordinator | None = None,
+        scheduler: SchedulerLeaseClient | None = None,
     ) -> None:
         self.store = store
         self.service_urls = service_urls
@@ -394,13 +404,14 @@ class MusicExecutor:
             follow_redirects=False,
         )
         self.gpu = gpu if gpu is not None else GpuCoordinator.from_environment()
+        self.scheduler = scheduler if scheduler is not None else SchedulerLeaseClient.from_environment()
         self.asset_import_origins = (
             parse_asset_import_origins(os.environ.get("MUSIC_ASSET_IMPORT_ORIGINS", ""))
             if asset_import_origins is None
             else asset_import_origins
         )
 
-    def _post(self, service: str, url: str, **kwargs: object) -> bytes:
+    def _post_with_proof(self, service: str, url: str, **kwargs: object) -> tuple[bytes, dict | None]:
         try:
             response = self.client.post(url, **kwargs)
         except httpx.HTTPError as error:
@@ -409,7 +420,20 @@ class MusicExecutor:
             raise ExecutionError(f"{service} returned HTTP {response.status_code}")
         if not response.content:
             raise ExecutionError(f"{service} returned an empty response")
-        return response.content
+        proof: dict | None = None
+        raw_proof = response.headers.get("x-vf-reclaim-proof")
+        if raw_proof:
+            try:
+                parsed = json.loads(raw_proof)
+                if isinstance(parsed, dict):
+                    proof = parsed
+            except ValueError:
+                proof = None
+        return response.content, proof
+
+    def _post(self, service: str, url: str, **kwargs: object) -> bytes:
+        content, _ = self._post_with_proof(service, url, **kwargs)
+        return content
 
     def _get_json(self, service: str, url: str, **kwargs: object) -> dict[str, object]:
         try:
@@ -487,6 +511,23 @@ class MusicExecutor:
                     }
             except Exception:
                 pass
+        if self.scheduler.enabled:
+            consumer_map = {
+                "music3": "music3",
+                "uvr5": "uvr5",
+                "rvc": "rvc",
+                "music_editor": "ace-step",
+            }
+            ckey = consumer_map.get(service)
+            if ckey is not None:
+                dep = str(SCHEDULER_CONSUMER_SPECS[ckey]["deployment"])
+                if self.gpu.replicas_for(dep) == 0:
+                    return {
+                        "service": service,
+                        "ready": False,
+                        "reason": "scaled_to_zero",
+                        "wake_on_task": True,
+                    }
         return {"service": service, "ready": False, "reason": "connect_failed"}
 
     def _wait_music3(self) -> None:
@@ -499,6 +540,206 @@ class MusicExecutor:
             last = str(check["reason"])
             time.sleep(2)
         raise ExecutionError(f"music3 not ready: {last}")
+
+    def _wait_service_ready(self, service: str, url: str, headers: dict[str, str] | None = None) -> None:
+        if service == "music3":
+            self._wait_music3()
+            return
+        deadline = time.monotonic() + self.gpu.ready_seconds
+        last = "connect_failed"
+        kwargs = {"headers": headers} if headers else {}
+        while time.monotonic() < deadline:
+            check = self._probe_health(service, url, **kwargs)
+            if check["ready"]:
+                return
+            last = str(check["reason"])
+            time.sleep(2)
+        raise ExecutionError(f"{service} not ready: {last}")
+
+    def _probe_runtime_identity(self, url: str | None, headers: dict[str, str] | None = None) -> dict[str, object]:
+        if not url:
+            return {}
+        try:
+            kwargs = {"headers": headers} if headers else {}
+            resp = self.client.get(f"{url}/health", **kwargs)
+            if 200 <= resp.status_code < 300:
+                payload = resp.json()
+                if isinstance(payload, dict) and isinstance(payload.get("runtime_identity"), dict):
+                    return dict(payload["runtime_identity"])
+        except Exception:
+            pass
+        return {}
+
+    @contextlib.contextmanager
+    def _hold_consumer_gpu(
+        self,
+        consumer_key: str,
+        service_url: str | None,
+        *,
+        stage_id: str | None = None,
+        parent_task_id: str | None = None,
+        use_legacy_mirror: bool = False,
+        probe_headers: dict[str, str] | None = None,
+    ):
+        recorded: dict[str, dict | None] = {"proof": None}
+
+        def record_proof(proof: dict | None) -> None:
+            if isinstance(proof, dict):
+                recorded["proof"] = proof
+
+        if not self.scheduler.enabled:
+            if use_legacy_mirror:
+                try:
+                    with self.gpu.hold():
+                        if self.gpu.enabled:
+                            self.gpu.scale_to(1)
+                            self._wait_music3()
+                        yield {}, record_proof
+                except LeaseBusy as error:
+                    raise ExecutionError("waiting_gpu_lease") from error
+            else:
+                yield {}, record_proof
+            return
+
+        spec = SCHEDULER_CONSUMER_SPECS.get(consumer_key, SCHEDULER_CONSUMER_SPECS["music3"])
+        resolved_stage = stage_id or str(spec["stage_id"])
+        task_id = parent_task_id or f"music-{consumer_key}-{uuid.uuid4().hex[:12]}"
+        attempt_id = f"att-{uuid.uuid4().hex[:10]}"
+        deployment = self.gpu.deployment if (use_legacy_mirror and self.gpu.deployment) else str(spec["deployment"])
+
+        replicas = self.gpu.replicas() if (use_legacy_mirror and self.gpu.enabled) else self.gpu.replicas_for(deployment)
+        slots_required = int(spec["card_count"]) if replicas == 0 else 0
+        target_identity = {} if replicas == 0 else self._probe_runtime_identity(service_url, probe_headers)
+
+        try:
+            lease_doc = self.scheduler.acquire_or_wait(
+                consumer_key=consumer_key,
+                task_id=task_id,
+                attempt_id=attempt_id,
+                stage_id=resolved_stage,
+                runtime_identity=target_identity,
+                k8s_slots_required=slots_required,
+            )
+        except LeaseBusy as error:
+            raise ExecutionError("waiting_gpu_lease") from error
+        except SchedulerError as error:
+            raise ExecutionError(f"gpu_scheduler_error:{error.code}") from error
+
+        lease_id = str(lease_doc["lease_id"])
+        fencing_token = int(lease_doc.get("fencing_token") or 0)
+        legacy_held = False
+        stop_hb = threading.Event()
+        hb_thread: threading.Thread | None = None
+        try:
+            if use_legacy_mirror and self.gpu.enabled:
+                # Canonical lock order (H7): :5056 FIRST, then non-blocking K8s Lease mirror
+                if not self.gpu.try_acquire_hold():
+                    raise ExecutionError("waiting_gpu_lease")
+                legacy_held = True
+                self.gpu.scale_to(1)
+                self._wait_music3()
+            elif replicas == 0 and service_url:
+                self.gpu.scale_deployment_to(deployment, 1)
+                self._wait_service_ready(consumer_key, service_url, probe_headers)
+
+            if not target_identity and service_url:
+                target_identity = self._probe_runtime_identity(service_url, probe_headers)
+
+            need_bind = (
+                not lease_doc.get("pod_uid")
+                or (target_identity.get("pod_uid") and lease_doc.get("pod_uid") != target_identity.get("pod_uid"))
+                or not (lease_doc.get("gpu_uuids") or lease_doc.get("assigned_gpu_uuids") or lease_doc.get("gpu_uuid"))
+            )
+            if need_bind and target_identity.get("pod_uid"):
+                try:
+                    lease_doc = self.scheduler.bind_target(
+                        lease_id,
+                        fencing_token,
+                        runtime_identity=target_identity,
+                        expected_version=int(lease_doc.get("version") or 0),
+                    )
+                except Exception as exc:
+                    raise ExecutionError("waiting_gpu_lease") from exc
+
+            interval = max(5, self.scheduler.ttl_seconds // 3)
+
+            def _hb_loop() -> None:
+                while not stop_hb.wait(interval):
+                    with contextlib.suppress(Exception):
+                        self.scheduler.heartbeat(lease_id, fencing_token)
+                    if legacy_held:
+                        with contextlib.suppress(Exception):
+                            self.gpu.renew()
+
+            hb_thread = threading.Thread(target=_hb_loop, name=f"music-sched-hb-{consumer_key}", daemon=True)
+            hb_thread.start()
+
+            grant_headers = self.scheduler.build_grant_headers(
+                lease_doc,
+                parent_task_id=task_id,
+                consumer_kind=str(spec["consumer_kind"]),
+                stage_id=resolved_stage,
+                target_identity=target_identity,
+            )
+            yield grant_headers, record_proof
+        finally:
+            stop_hb.set()
+            if legacy_held:
+                with contextlib.suppress(Exception):
+                    self.gpu.release()
+            target_bound = bool(lease_doc.get("pod_uid"))
+            proof = recorded["proof"]
+            if proof is None and target_bound and service_url:
+                reclaim_headers = dict(probe_headers or {})
+                if "Authorization" not in reclaim_headers and "authorization" not in reclaim_headers:
+                    rt_tok = (
+                        os.environ.get("MUSIC_RUNTIME_TOKEN", "").strip()
+                        or os.environ.get("STATION_GPU_SCHEDULER_TOKEN", "").strip()
+                        or self.scheduler.token
+                    )
+                    if rt_tok:
+                        reclaim_headers["Authorization"] = f"Bearer {rt_tok}"
+                with contextlib.suppress(Exception):
+                    rec_resp = self.client.post(
+                        f"{service_url}/internal/v1/gpu-guard/reclaim",
+                        headers=reclaim_headers,
+                        json={"lease_id": lease_id, "fencing_token": fencing_token},
+                    )
+                    if rec_resp.status_code == 200 and rec_resp.content:
+                        rec_doc = rec_resp.json()
+                        if isinstance(rec_doc, dict) and isinstance(rec_doc.get("reclaim_proof"), dict):
+                            proof = rec_doc["reclaim_proof"]
+
+            valid_proof = bool(
+                isinstance(proof, dict)
+                and proof.get("reclaimed") is True
+                and int(proof.get("active_tasks", 1)) == 0
+                and proof.get("proof_source") == "receiver_guard"
+                and proof.get("token_sealed") is True
+            )
+            if not target_bound:
+                reclaim_mode = "abort_unstarted"
+                worker_settled = False
+                send_proof = None
+            elif valid_proof:
+                reclaim_mode = "warm_idle_settled"
+                worker_settled = True
+                send_proof = proof
+            else:
+                reclaim_mode = ""
+                worker_settled = False
+                send_proof = None
+
+            with contextlib.suppress(Exception):
+                self.scheduler.release(
+                    lease_id,
+                    fencing_token,
+                    worker_settled=worker_settled,
+                    reclaim_mode=reclaim_mode,
+                    reclaim_proof=send_proof,
+                    target_identity=target_identity if target_bound else None,
+                    expected_version=int(lease_doc.get("version") or 0),
+                )
 
     def _music_editor_headers(self) -> dict[str, str]:
         token = self.service_urls.music_editor_bearer_token
@@ -708,6 +949,8 @@ class MusicExecutor:
             "plan_asset_id": plan_asset_id, "data": data,
             "source_sha256": hashlib.sha256(source[1]).hexdigest() if source else None,
         }, sort_keys=True).encode()).hexdigest()
+        receipt_record: ArtifactRecord | None = None
+        resumed_task_id: str | None = None
         if resume_task_asset_id is not None:
             receipt_record, receipt_payload = self.store.read(resume_task_asset_id, project)
             if receipt_record.operation != "duet.task":
@@ -718,84 +961,97 @@ class MusicExecutor:
                 raise ValueError("duet task receipt is invalid") from error
             if receipt.get("request_sha256") != request_hash or not isinstance(receipt.get("task_id"), str):
                 raise ValueError("duet task receipt does not match this request")
-            task_id = receipt["task_id"]
-        else:
-            kwargs: dict[str, object] = {"headers": self._music_editor_headers(), "data": data}
-            if source is not None:
-                kwargs["files"] = {"src_audio": (source[0], source[1], "audio/wav")}
-            submitted = self._post_json(
-                "ACE-Step duet task submission",
-                f"{self.service_urls.music_editor}/release_task",
-                **kwargs,
-            )
-            submission_data = self._ace_data(submitted, "duet task submission")
-            if not isinstance(submission_data, dict) or not isinstance(submission_data.get("task_id"), str):
-                raise ExecutionError("ACE-Step duet task submission returned no task ID")
-            task_id = submission_data["task_id"]
-            try:
-                receipt_record = self.store.create(
-                    project_id=project, operation="duet.task",
-                    filename="Duet_Task.json",
-                    media_type="application/json",
-                    payload=json.dumps({"task_id": task_id, "request_sha256": request_hash}).encode(),
+            resumed_task_id = receipt["task_id"]
+
+        base_headers = self._music_editor_headers()
+        with self._hold_consumer_gpu(
+            "ace-step",
+            self.service_urls.music_editor,
+            stage_id="ace_step_duet",
+            probe_headers=base_headers,
+        ) as (grant_headers, record_proof):
+            editor_headers = {**base_headers, **grant_headers} if grant_headers else base_headers
+            if resumed_task_id is not None and receipt_record is not None:
+                task_id = resumed_task_id
+            else:
+                kwargs: dict[str, object] = {"headers": editor_headers, "data": data}
+                if source is not None:
+                    kwargs["files"] = {"src_audio": (source[0], source[1], "audio/wav")}
+                submitted = self._post_json(
+                    "ACE-Step duet task submission",
+                    f"{self.service_urls.music_editor}/release_task",
+                    **kwargs,
                 )
-            except Exception as error:
-                raise ExecutionError(f"ACE-Step duet task {task_id} submitted but receipt could not be saved") from error
-        recovery = f"; resume with Artifact {receipt_record.artifact_id}"
-        deadline = time.monotonic() + 900.0
-        while time.monotonic() < deadline:
-            try:
-                queried = self._post_json(
-                    "ACE-Step duet task query",
-                    f"{self.service_urls.music_editor}/query_result",
-                    headers=self._music_editor_headers(),
-                    json={"task_id_list": [task_id]},
-                )
-            except ExecutionError as error:
-                raise ExecutionError(f"ACE-Step duet task {task_id} query failed{recovery}") from error
-            try:
-                query_data = self._ace_data(queried, "duet task query")
-            except ExecutionError as error:
-                raise ExecutionError(f"ACE-Step duet task {task_id} query returned an error{recovery}") from error
-            if not isinstance(query_data, list) or len(query_data) != 1:
-                raise ExecutionError(f"ACE-Step duet task {task_id} returned invalid status{recovery}")
-            task = query_data[0]
-            if not isinstance(task, dict) or task.get("task_id") != task_id:
-                raise ExecutionError(f"ACE-Step duet task {task_id} returned the wrong task{recovery}")
-            if task.get("status") == 2:
-                raise ExecutionError(f"ACE-Step duet task {task_id} failed{recovery}")
-            if task.get("status") == 1:
+                submission_data = self._ace_data(submitted, "duet task submission")
+                if not isinstance(submission_data, dict) or not isinstance(submission_data.get("task_id"), str):
+                    raise ExecutionError("ACE-Step duet task submission returned no task ID")
+                task_id = submission_data["task_id"]
                 try:
-                    items = json.loads(task["result"]) if isinstance(task.get("result"), str) else task["result"]
-                except (KeyError, json.JSONDecodeError) as error:
-                    raise ExecutionError(f"ACE-Step duet task {task_id} returned invalid output{recovery}") from error
-                break
-            time.sleep(2.0)
-        else:
-            raise ExecutionError(f"ACE-Step duet task {task_id} timed out{recovery}")
-        if not isinstance(items, list) or not items or not isinstance(items[0], dict):
-            raise ExecutionError(f"ACE-Step duet task {task_id} returned no audio{recovery}")
-        file_value = items[0].get("file")
-        if not isinstance(file_value, str) or not file_value:
-            raise ExecutionError(f"ACE-Step duet task {task_id} returned no audio URL{recovery}")
-        result_url = urljoin(f"{self.service_urls.music_editor}/", file_value)
-        origin = urlsplit(self.service_urls.music_editor)
-        result_origin = urlsplit(result_url)
-        if (origin.scheme, origin.netloc) != (result_origin.scheme, result_origin.netloc):
-            raise ExecutionError(f"ACE-Step duet task {task_id} returned an untrusted origin{recovery}")
-        try:
-            response = self.client.get(result_url, headers=self._music_editor_headers())
-        except httpx.HTTPError as error:
-            raise ExecutionError(f"ACE-Step duet task {task_id} audio download failed{recovery}") from error
-        if response.status_code < 200 or response.status_code >= 300:
-            raise ExecutionError(f"ACE-Step duet task {task_id} audio download returned HTTP {response.status_code}{recovery}")
-        if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
-            raise ExecutionError(f"ACE-Step duet task {task_id} audio download has invalid size{recovery}")
-        try:
-            pcm16_wav(response.content)
-        except ValueError as error:
-            raise ExecutionError(f"ACE-Step duet task {task_id} did not return 16-bit PCM WAV{recovery}") from error
-        return response.content, receipt_record
+                    receipt_record = self.store.create(
+                        project_id=project, operation="duet.task",
+                        filename="Duet_Task.json",
+                        media_type="application/json",
+                        payload=json.dumps({"task_id": task_id, "request_sha256": request_hash}).encode(),
+                    )
+                except Exception as error:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} submitted but receipt could not be saved") from error
+            recovery = f"; resume with Artifact {receipt_record.artifact_id}"
+            deadline = time.monotonic() + 900.0
+            while time.monotonic() < deadline:
+                try:
+                    queried = self._post_json(
+                        "ACE-Step duet task query",
+                        f"{self.service_urls.music_editor}/query_result",
+                        headers=editor_headers,
+                        json={"task_id_list": [task_id]},
+                    )
+                except ExecutionError as error:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} query failed{recovery}") from error
+                try:
+                    query_data = self._ace_data(queried, "duet task query")
+                except ExecutionError as error:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} query returned an error{recovery}") from error
+                if not isinstance(query_data, list) or len(query_data) != 1:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} returned invalid status{recovery}")
+                task = query_data[0]
+                if not isinstance(task, dict) or task.get("task_id") != task_id:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} returned the wrong task{recovery}")
+                if task.get("status") == 2:
+                    raise ExecutionError(f"ACE-Step duet task {task_id} failed{recovery}")
+                if task.get("status") == 1:
+                    if isinstance(queried.get("reclaim_proof"), dict):
+                        record_proof(queried["reclaim_proof"])
+                    try:
+                        items = json.loads(task["result"]) if isinstance(task.get("result"), str) else task["result"]
+                    except (KeyError, json.JSONDecodeError) as error:
+                        raise ExecutionError(f"ACE-Step duet task {task_id} returned invalid output{recovery}") from error
+                    break
+                time.sleep(2.0)
+            else:
+                raise ExecutionError(f"ACE-Step duet task {task_id} timed out{recovery}")
+            if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+                raise ExecutionError(f"ACE-Step duet task {task_id} returned no audio{recovery}")
+            file_value = items[0].get("file")
+            if not isinstance(file_value, str) or not file_value:
+                raise ExecutionError(f"ACE-Step duet task {task_id} returned no audio URL{recovery}")
+            result_url = urljoin(f"{self.service_urls.music_editor}/", file_value)
+            origin = urlsplit(self.service_urls.music_editor)
+            result_origin = urlsplit(result_url)
+            if (origin.scheme, origin.netloc) != (result_origin.scheme, result_origin.netloc):
+                raise ExecutionError(f"ACE-Step duet task {task_id} returned an untrusted origin{recovery}")
+            try:
+                response = self.client.get(result_url, headers=base_headers)
+            except httpx.HTTPError as error:
+                raise ExecutionError(f"ACE-Step duet task {task_id} audio download failed{recovery}") from error
+            if response.status_code < 200 or response.status_code >= 300:
+                raise ExecutionError(f"ACE-Step duet task {task_id} audio download returned HTTP {response.status_code}{recovery}")
+            if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
+                raise ExecutionError(f"ACE-Step duet task {task_id} audio download has invalid size{recovery}")
+            try:
+                pcm16_wav(response.content)
+            except ValueError as error:
+                raise ExecutionError(f"ACE-Step duet task {task_id} did not return 16-bit PCM WAV{recovery}") from error
+            return response.content, receipt_record
 
     def duet_instrumental(
         self, *, project_id: str, plan_asset_id: str, seed: int = 7,
@@ -979,14 +1235,17 @@ class MusicExecutor:
             "response_format": "wav",
             "stream": False,
         }
-        try:
-            with self.gpu.hold():
-                if self.gpu.enabled:
-                    self.gpu.scale_to(1)
-                    self._wait_music3()
-                raw = self._post("Music3", f"{self.service_urls.music3}/v1/audio/speech", json=body)
-        except LeaseBusy as error:
-            raise ExecutionError("waiting_gpu_lease") from error
+        with self._hold_consumer_gpu(
+            "music3",
+            self.service_urls.music3,
+            stage_id="music3_generate",
+            use_legacy_mirror=True,
+        ) as (grant_headers, record_proof):
+            post_kwargs: dict[str, object] = {"json": body}
+            if grant_headers:
+                post_kwargs["headers"] = grant_headers
+            raw, proof = self._post_with_proof("Music3", f"{self.service_urls.music3}/v1/audio/speech", **post_kwargs)
+            record_proof(proof)
         validate_pcm_wav(raw)
         return [
             self.store.create(
@@ -1085,104 +1344,121 @@ class MusicExecutor:
         on_submitted=None, extra_data=None, resume_task_id=None, vocal_language="unknown",
     ):
         """Submit one source-conditioned task; record its identity before polling."""
-        headers = self._music_editor_headers()
+        base_headers = self._music_editor_headers()
         if resume_task_id is not None:
             if not isinstance(resume_task_id, str) or not resume_task_id:
                 raise ValueError("invalid stored backend task identity")
-            task_id = resume_task_id
         else:
             check_conditioning(instructions, lyrics, vocal_language)
-            submitted = self._post_json(
-                "ACE-Step task submission",
-                f"{self.service_urls.music_editor}/release_task",
-                headers=headers,
-                files={"src_audio": (source.filename, audio, source.media_type)},
-                data={
-                    "task_type": "repaint",
-                    "prompt": instructions,
-                    "lyrics": lyrics,
-                    "vocal_language": vocal_language,
-                    "repainting_start": str(start_seconds),
-                    "repainting_end": str(end_seconds),
-                    "chunk_mask_mode": "explicit",
-                    "repaint_mode": preservation_mode,
-                    "repaint_strength": str(edit_strength),
-                    "repaint_latent_crossfade_frames": str(max(1, round(crossfade_seconds * 25))),
-                    "repaint_wav_crossfade_sec": str(crossfade_seconds),
-                    "seed": str(seed),
-                    "use_random_seed": "false",
-                    "audio_format": "wav",
-                    **(extra_data or {}),
-                },
-            )
-            submission_data = self._ace_data(submitted, "task submission")
-            if not isinstance(submission_data, dict) or not isinstance(
-                submission_data.get("task_id"), str
+
+        with self._hold_consumer_gpu(
+            "ace-step",
+            self.service_urls.music_editor,
+            stage_id="ace_step_repaint",
+            probe_headers=base_headers,
+        ) as (grant_headers, record_proof):
+            headers = {**base_headers, **grant_headers} if grant_headers else base_headers
+            if resume_task_id is not None:
+                task_id = resume_task_id
+            else:
+                submitted = self._post_json(
+                    "ACE-Step task submission",
+                    f"{self.service_urls.music_editor}/release_task",
+                    headers=headers,
+                    files={"src_audio": (source.filename, audio, source.media_type)},
+                    data={
+                        "task_type": "repaint",
+                        "prompt": instructions,
+                        "lyrics": lyrics,
+                        "vocal_language": vocal_language,
+                        "repainting_start": str(start_seconds),
+                        "repainting_end": str(end_seconds),
+                        "chunk_mask_mode": "explicit",
+                        "repaint_mode": preservation_mode,
+                        "repaint_strength": str(edit_strength),
+                        "repaint_latent_crossfade_frames": str(max(1, round(crossfade_seconds * 25))),
+                        "repaint_wav_crossfade_sec": str(crossfade_seconds),
+                        "seed": str(seed),
+                        "use_random_seed": "false",
+                        "audio_format": "wav",
+                        **(extra_data or {}),
+                    },
+                )
+                submission_data = self._ace_data(submitted, "task submission")
+                if not isinstance(submission_data, dict) or not isinstance(
+                    submission_data.get("task_id"), str
+                ):
+                    raise ExecutionError("ACE-Step task submission returned no task ID")
+                task_id = submission_data["task_id"]
+                if on_submitted is not None:
+                    on_submitted(task_id)
+
+            result_items: list[object] | None = None
+            deadline = time.monotonic() + 900.0
+            while time.monotonic() < deadline:
+                queried = self._post_json(
+                    "ACE-Step task query",
+                    f"{self.service_urls.music_editor}/query_result",
+                    headers=headers,
+                    json={"task_id_list": [task_id]},
+                )
+                query_data = self._ace_data(queried, "task query")
+                if not isinstance(query_data, list) or len(query_data) != 1:
+                    raise ExecutionError("ACE-Step task query returned invalid data")
+                task = query_data[0]
+                if not isinstance(task, dict) or task.get("task_id") != task_id:
+                    raise ExecutionError("ACE-Step task query returned the wrong task")
+                if task.get("status") == 2:
+                    raise ExecutionError("ACE-Step repaint task failed")
+                if task.get("status") == 1:
+                    if isinstance(queried.get("reclaim_proof"), dict):
+                        record_proof(queried["reclaim_proof"])
+                    raw_result = task.get("result")
+                    try:
+                        result_items = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+                    except json.JSONDecodeError as error:
+                        raise ExecutionError("ACE-Step repaint result is invalid") from error
+                    break
+                time.sleep(2.0)
+            if result_items is None:
+                raise ExecutionError("ACE-Step repaint task timed out")
+            if not isinstance(result_items, list) or not result_items or not isinstance(result_items[0], dict):
+                raise ExecutionError("ACE-Step repaint result is empty")
+            file_value = result_items[0].get("file")
+            if not isinstance(file_value, str) or not file_value:
+                raise ExecutionError("ACE-Step repaint result has no audio file")
+
+            result_url = urljoin(f"{self.service_urls.music_editor}/", file_value)
+            editor_origin = urlsplit(self.service_urls.music_editor)
+            result_origin = urlsplit(result_url)
+            if (result_origin.scheme, result_origin.netloc) != (
+                editor_origin.scheme,
+                editor_origin.netloc,
             ):
-                raise ExecutionError("ACE-Step task submission returned no task ID")
-            task_id = submission_data["task_id"]
-            if on_submitted is not None:
-                on_submitted(task_id)
-
-        result_items: list[object] | None = None
-        deadline = time.monotonic() + 900.0
-        while time.monotonic() < deadline:
-            queried = self._post_json(
-                "ACE-Step task query",
-                f"{self.service_urls.music_editor}/query_result",
-                headers=headers,
-                json={"task_id_list": [task_id]},
-            )
-            query_data = self._ace_data(queried, "task query")
-            if not isinstance(query_data, list) or len(query_data) != 1:
-                raise ExecutionError("ACE-Step task query returned invalid data")
-            task = query_data[0]
-            if not isinstance(task, dict) or task.get("task_id") != task_id:
-                raise ExecutionError("ACE-Step task query returned the wrong task")
-            if task.get("status") == 2:
-                raise ExecutionError("ACE-Step repaint task failed")
-            if task.get("status") == 1:
-                raw_result = task.get("result")
-                try:
-                    result_items = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
-                except json.JSONDecodeError as error:
-                    raise ExecutionError("ACE-Step repaint result is invalid") from error
-                break
-            time.sleep(2.0)
-        if result_items is None:
-            raise ExecutionError("ACE-Step repaint task timed out")
-        if not isinstance(result_items, list) or not result_items or not isinstance(result_items[0], dict):
-            raise ExecutionError("ACE-Step repaint result is empty")
-        file_value = result_items[0].get("file")
-        if not isinstance(file_value, str) or not file_value:
-            raise ExecutionError("ACE-Step repaint result has no audio file")
-
-        result_url = urljoin(f"{self.service_urls.music_editor}/", file_value)
-        editor_origin = urlsplit(self.service_urls.music_editor)
-        result_origin = urlsplit(result_url)
-        if (result_origin.scheme, result_origin.netloc) != (
-            editor_origin.scheme,
-            editor_origin.netloc,
-        ):
-            raise ExecutionError("ACE-Step repaint result points to an untrusted origin")
-        try:
-            response = self.client.get(result_url, headers=headers)
-        except httpx.HTTPError as error:
-            raise ExecutionError("ACE-Step audio download failed") from error
-        if response.status_code < 200 or response.status_code >= 300:
-            raise ExecutionError(f"ACE-Step audio download returned HTTP {response.status_code}")
-        if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
-            raise ExecutionError("ACE-Step audio download has an invalid size")
-        return response.content, task_id
+                raise ExecutionError("ACE-Step repaint result points to an untrusted origin")
+            try:
+                response = self.client.get(result_url, headers=base_headers)
+            except httpx.HTTPError as error:
+                raise ExecutionError("ACE-Step audio download failed") from error
+            if response.status_code < 200 or response.status_code >= 300:
+                raise ExecutionError(f"ACE-Step audio download returned HTTP {response.status_code}")
+            if not response.content or len(response.content) > MAX_ARTIFACT_BYTES:
+                raise ExecutionError("ACE-Step audio download has an invalid size")
+            return response.content, task_id
 
     def separate_stems(self, *, project_id: str, audio_asset_id: str) -> list[ArtifactRecord]:
         project = require_project_id(project_id)
         source, audio = self.store.read(audio_asset_id, project)
-        archive = self._post(
-            "UVR5",
-            f"{self.service_urls.uvr5}/v1/audio/stem-separations",
-            files={"audio": (source.filename, audio, source.media_type)},
-        )
+        with self._hold_consumer_gpu("uvr5", self.service_urls.uvr5, stage_id="uvr5_separate") as (grant_headers, record_proof):
+            post_kwargs: dict[str, object] = {"files": {"audio": (source.filename, audio, source.media_type)}}
+            if grant_headers:
+                post_kwargs["headers"] = grant_headers
+            archive, proof = self._post_with_proof(
+                "UVR5",
+                f"{self.service_urls.uvr5}/v1/audio/stem-separations",
+                **post_kwargs,
+            )
+            record_proof(proof)
         expected = {
             "instrumental.wav": "audio/wav",
             "vocal_dry_original.wav": "audio/wav",
@@ -1233,17 +1509,24 @@ class MusicExecutor:
         if not 1 <= batch_size <= 16:
             raise ValueError("batch_size must be between 1 and 16")
         source, audio = self.store.read(audio_asset_id, project)
-        archive = self._post(
-            "RVC",
-            f"{self.service_urls.rvc}/v1/voice-models/train",
-            files={"audio": (source.filename, audio, source.media_type)},
-            data={
-                "model_id": model,
-                "epochs": str(epochs),
-                "batch_size": str(batch_size),
-                "save_every_epochs": "50",
-            },
-        )
+        with self._hold_consumer_gpu("rvc", self.service_urls.rvc, stage_id="rvc_train") as (grant_headers, record_proof):
+            post_kwargs: dict[str, object] = {
+                "files": {"audio": (source.filename, audio, source.media_type)},
+                "data": {
+                    "model_id": model,
+                    "epochs": str(epochs),
+                    "batch_size": str(batch_size),
+                    "save_every_epochs": "50",
+                },
+            }
+            if grant_headers:
+                post_kwargs["headers"] = grant_headers
+            archive, proof = self._post_with_proof(
+                "RVC",
+                f"{self.service_urls.rvc}/v1/voice-models/train",
+                **post_kwargs,
+            )
+            record_proof(proof)
         expected = {
             f"{model}.pth": "application/octet-stream",
             f"{model}.index": "application/octet-stream",
@@ -1282,14 +1565,21 @@ class MusicExecutor:
             if total_size > MAX_VOICE_PREPARATION_BYTES:
                 raise ValueError("voice preparation inputs exceed 300 MiB")
             sources.append((record, payload))
-        archive = self._post(
-            "RVC",
-            f"{self.service_urls.rvc}/v1/voice-datasets/prepare",
-            files=[
-                ("audio", (record.filename, payload, record.media_type))
-                for record, payload in sources
-            ],
-        )
+        with self._hold_consumer_gpu("rvc", self.service_urls.rvc, stage_id="rvc_prepare") as (grant_headers, record_proof):
+            post_kwargs: dict[str, object] = {
+                "files": [
+                    ("audio", (record.filename, payload, record.media_type))
+                    for record, payload in sources
+                ],
+            }
+            if grant_headers:
+                post_kwargs["headers"] = grant_headers
+            archive, proof = self._post_with_proof(
+                "RVC",
+                f"{self.service_urls.rvc}/v1/voice-datasets/prepare",
+                **post_kwargs,
+            )
+            record_proof(proof)
         expected = {
             **{f"prepared-{number:02d}.wav": "audio/wav" for number in range(1, len(sources) + 1)},
             "voice-training.wav": "audio/wav",
@@ -1337,20 +1627,27 @@ class MusicExecutor:
         if not 0.0 <= protect <= 0.5:
             raise ValueError("protect must be between 0 and 0.5")
         source, audio = self.store.read(audio_asset_id, project)
-        converted = self._post(
-            "RVC",
-            f"{self.service_urls.rvc}/v1/audio/voice-conversions",
-            files={"audio": (source.filename, audio, source.media_type)},
-            data={
-                "model_id": model,
-                "pitch_shift": str(pitch_shift),
-                "f0_method": f0_method,
-                "index_rate": str(index_rate),
-                "filter_radius": str(filter_radius),
-                "rms_mix_rate": str(rms_mix_rate),
-                "protect": str(protect),
-            },
-        )
+        with self._hold_consumer_gpu("rvc", self.service_urls.rvc, stage_id="rvc_convert") as (grant_headers, record_proof):
+            post_kwargs: dict[str, object] = {
+                "files": {"audio": (source.filename, audio, source.media_type)},
+                "data": {
+                    "model_id": model,
+                    "pitch_shift": str(pitch_shift),
+                    "f0_method": f0_method,
+                    "index_rate": str(index_rate),
+                    "filter_radius": str(filter_radius),
+                    "rms_mix_rate": str(rms_mix_rate),
+                    "protect": str(protect),
+                },
+            }
+            if grant_headers:
+                post_kwargs["headers"] = grant_headers
+            converted, proof = self._post_with_proof(
+                "RVC",
+                f"{self.service_urls.rvc}/v1/audio/voice-conversions",
+                **post_kwargs,
+            )
+            record_proof(proof)
         return [
             self.store.create(
                 project_id=project,

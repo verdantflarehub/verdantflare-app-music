@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import logging
 import sys
 from pathlib import Path
@@ -10,6 +11,17 @@ from .locks import GPU_LOCK
 
 
 logger = logging.getLogger(__name__)
+
+
+def clear_cuda_cache() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def _create_upstream_config(config_type: Any) -> Any:
@@ -41,6 +53,21 @@ class RVCService:
         self.catalog = catalog
         self._vc: Any | None = None
         self._loaded_model_id: str | None = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._vc is not None or self._loaded_model_id is not None
+
+    def evict_idle_vram(self) -> bool:
+        if not GPU_LOCK.acquire(blocking=False):
+            return False
+        try:
+            self._vc = None
+            self._loaded_model_id = None
+            clear_cuda_cache()
+            return True
+        finally:
+            GPU_LOCK.release()
 
     def _backend(self) -> Any:
         if self._vc is None:

@@ -6,7 +6,7 @@ ARG ACESTEP_REV=ca1e85fe9430179831e6bc6be790c332190a3866
 
 LABEL org.opencontainers.image.source="https://github.com/verdantflarehub/verdantflare-app-music"
 LABEL org.opencontainers.image.title="VerdantFlare ACE-Step 1.5"
-LABEL org.opencontainers.image.version="0.1.1"
+LABEL org.opencontainers.image.version="0.1.2"
 LABEL org.opencontainers.image.licenses="MIT"
 
 RUN apt-get update \
@@ -23,7 +23,10 @@ RUN git clone --filter=blob:none https://github.com/ace-step/ACE-Step-1.5.git /a
     && git checkout "${ACESTEP_REV}" \
     && rm -rf .git \
     && uv sync --frozen --no-dev --python python3.11
+COPY guard/ /opt/acestep-guard/guard/
+COPY entrypoint.sh /usr/local/bin/music-ace-step-entrypoint
 COPY NOTICE.upstream.md /usr/share/licenses/music-ace-step/NOTICE.upstream.md
+RUN chmod 0755 /usr/local/bin/music-ace-step-entrypoint && /app/.venv/bin/python -m compileall -q /opt/acestep-guard
 
 ENV ACESTEP_API_HOST=0.0.0.0 \
     ACESTEP_API_PORT=8001 \
@@ -34,4 +37,4 @@ ENV ACESTEP_API_HOST=0.0.0.0 \
     TOKENIZERS_PARALLELISM=false
 
 EXPOSE 8001
-ENTRYPOINT ["/app/.venv/bin/python", "-m", "acestep.api_server"]
+ENTRYPOINT ["/usr/local/bin/music-ace-step-entrypoint"]
