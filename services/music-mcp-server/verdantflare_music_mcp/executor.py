@@ -724,23 +724,32 @@ class MusicExecutor:
                         headers=reclaim_headers,
                         json={"lease_id": lease_id, "fencing_token": fencing_token},
                     )
-                    if rec_resp.status_code == 200 and rec_resp.content:
+                    if rec_resp.status_code in (200, 409) and rec_resp.content:
                         rec_doc = rec_resp.json()
                         if isinstance(rec_doc, dict) and isinstance(rec_doc.get("reclaim_proof"), dict):
                             proof = rec_doc["reclaim_proof"]
 
-            valid_proof = bool(
-                isinstance(proof, dict)
-                and proof.get("reclaimed") is True
-                and int(proof.get("active_tasks", 1)) == 0
-                and proof.get("proof_source") == "receiver_guard"
-                and proof.get("token_sealed") is True
-            )
+            # Legacy workers may reject reclaim solely because their PID list
+            # exceeds 32. A sealed idle receiver can still be stopped as a whole;
+            # only observed Pod exit permits worker_settled on the scheduler.
+            can_scale_to_zero = False
+            try:
+                can_scale_to_zero = bool(
+                    isinstance(proof, dict)
+                    and proof.get("proof_source") == "receiver_guard"
+                    and proof.get("token_sealed") is True
+                    and int(proof.get("active_tasks", 1)) == 0
+                    and proof.get("upstream_alive") is not False
+                    and isinstance(proof.get("resident_procs", []), list)
+                    and len(proof.get("resident_procs", [])) <= 128
+                )
+            except (TypeError, ValueError, OverflowError):
+                pass
             if not target_bound:
                 reclaim_mode = "abort_unstarted"
                 worker_settled = False
                 send_proof = None
-            elif valid_proof:
+            elif can_scale_to_zero:
                 # A sealed request is not proof that resident CUDA processes exited.
                 # Keep heartbeating until the original Pod has disappeared.
                 worker_settled = False

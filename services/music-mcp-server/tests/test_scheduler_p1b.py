@@ -83,6 +83,40 @@ class MusicSchedulerP1bTest(unittest.TestCase):
                 self.assertEqual(versions, [4,5] if conflict and not changed_fence else [4])
                 self.assertEqual(scheduler.get_lease.call_count, int(conflict))
 
+    def test_legacy_409_sealed_idle_receiver_can_stop_with_55_processes(self):
+        base = {"reclaimed":False,"active_tasks":0,"proof_source":"receiver_guard",
+                "token_sealed":True,"upstream_alive":True,"resident_procs":[{"pid":i+1} for i in range(55)]}
+        for status, changes, expected in ((409,{},True), (200,{},True),
+                (409,{"active_tasks":1},False), (409,{"token_sealed":False},False),
+                (409,{"upstream_alive":False},False), (409,{"resident_procs":[{}]*129},False),
+                (409,{"resident_procs":None},False), (409,{"active_tasks":"invalid"},False),
+                (503,{},False)):
+            with self.subTest(status=status,changes=changes), tempfile.TemporaryDirectory() as tmp:
+                lease={"lease_id":"legacy", "fencing_token":1,"version":2,"pod_uid":"pod","gpu_uuids":["gpu"]}
+                scheduler=Mock(enabled=True,ttl_seconds=90)
+                scheduler.acquire_or_wait.return_value=lease
+                scheduler.build_grant_headers.return_value={}
+                def release(*args,**kwargs):
+                    if not kwargs["worker_settled"]:
+                        raise SchedulerError("WORKER_NOT_SETTLED",status_code=409)
+                    self.assertEqual(kwargs["reclaim_mode"], "")
+                    self.assertIsNone(kwargs["reclaim_proof"])
+                    return {"lease_id":"legacy","state":"released"}
+                scheduler.release.side_effect=release
+                gpu=GpuCoordinator(MemoryApi(),"","",enabled=False)
+                gpu.api.scales["music-minimax-music3"]=1
+                gpu.stop_deployment_and_wait=Mock()
+                def handler(req):
+                    if req.url.path.endswith('/reclaim'):
+                        return httpx.Response(status,json={"reclaim_proof":{**base,**changes}})
+                    return httpx.Response(200,json={"runtime_identity":{"pod_uid":"pod"}})
+                with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+                    executor=MusicExecutor(ArtifactStore(Path(tmp)),ServiceURLs("m","u","r","l","a"),client=client,gpu=gpu,scheduler=scheduler)
+                    with executor._hold_consumer_gpu("music3","http://worker"):
+                        pass
+                self.assertEqual(gpu.stop_deployment_and_wait.call_count, int(expected))
+                self.assertEqual(scheduler.release.call_args.kwargs["worker_settled"],expected)
+
     def test_all_consumers_shutdown_before_release_and_never_settle_on_timeout(self):
         for consumer in ("music3", "uvr5", "rvc", "ace-step"):
             for stop_error in (None, RuntimeError("still terminating")):
