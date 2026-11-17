@@ -97,6 +97,9 @@ class MemoryApi:
     def patch_scale(self, name: str, replicas: int) -> None:
         self.scales[name] = replicas
 
+    def deployment_pods(self, name: str) -> list[dict]:
+        return [] if self.get_scale(name) == 0 else [{"metadata": {"name": name}}]
+
 
 class K8sApi:
     def __init__(
@@ -152,6 +155,21 @@ class K8sApi:
         response = self._request("GET", path)
         response.raise_for_status()
         return replicas_from_scale(response.json())
+
+    def deployment_pods(self, name: str) -> list[dict]:
+        response = self._request("GET", f"/apis/apps/v1/namespaces/{self.namespace}/deployments/{name}")
+        response.raise_for_status()
+        selector = response.json()["spec"]["selector"]
+        labels = selector.get("matchLabels")
+        if not labels or selector.get("matchExpressions"):
+            raise RuntimeError("unsupported_deployment_selector")
+        response = self._request("GET", f"/api/v1/namespaces/{self.namespace}/pods",
+                                 params={"labelSelector": ",".join(f"{k}={v}" for k, v in labels.items())})
+        response.raise_for_status()
+        items = response.json().get("items")
+        if not isinstance(items, list):
+            raise RuntimeError("invalid_pod_list")
+        return items
 
     def patch_scale(self, name: str, replicas: int) -> None:
         path = f"/apis/apps/v1/namespaces/{self.namespace}/deployments/{name}/scale"
@@ -270,6 +288,19 @@ class GpuCoordinator:
             return
         if self.api.get_scale(deployment) != replicas:
             self.api.patch_scale(deployment, replicas)
+
+    def stop_deployment_and_wait(self, deployment: str) -> None:
+        if self.api is None or not deployment:
+            raise RuntimeError("gpu_shutdown_unavailable")
+        self.scale_deployment_to(deployment, 0)
+        deadline = self._monotonic() + self.ready_seconds
+        while True:
+            # Include terminating/terminal Pods: desired replicas=0 alone is insufficient.
+            if not self.api.deployment_pods(deployment):
+                return
+            if self._monotonic() >= deadline:
+                raise RuntimeError("gpu_shutdown_timeout")
+            self._sleep(1)
 
     def _spec(self, holder: str, acquire_time: str | None = None) -> dict:
         now = format_time(self._now())
@@ -423,7 +454,7 @@ SCHEDULER_CONSUMER_SPECS: dict[str, dict[str, object]] = {
         "consumer_kind": "music3",
         "stage_id": "music3_generate",
         "card_count": 2,
-        "peak_budget_mib": 16384,
+        "peak_budget_mib": 29696,
         "priority_class": "exclusive_batch",
         "deployment": "music-minimax-music3",
     },

@@ -40,6 +40,30 @@ def coordinator(role: str, api: MemoryApi, clock: Clock, deployment: str | None 
 
 
 class GpuLeaseTest(unittest.TestCase):
+    def test_shutdown_waits_for_terminating_pods_and_fails_closed(self):
+        clock = Clock()
+        class TerminatingApi(MemoryApi):
+            reads = 0
+            def deployment_pods(self, name):
+                self.reads += 1
+                return [{"metadata": {"deletionTimestamp": "now"}}] if self.reads < 3 else []
+        api = TerminatingApi()
+        gpu = coordinator("music3", api, clock, "music-minimax-music3")
+        gpu.ready_seconds = 5
+        gpu.stop_deployment_and_wait("music-minimax-music3")
+        self.assertEqual(api.reads, 3)
+        self.assertEqual(clock.t, 2)
+        self.assertEqual(api.get_scale("music-minimax-music3"), 0)
+        api.deployment_pods = lambda name: [{}]
+        gpu.ready_seconds = 2
+        with self.assertRaisesRegex(RuntimeError, "gpu_shutdown_timeout"):
+            gpu.stop_deployment_and_wait("music-minimax-music3")
+        def unavailable(name):
+            raise RuntimeError("api unavailable")
+        api.deployment_pods = unavailable
+        with self.assertRaisesRegex(RuntimeError, "api unavailable"):
+            gpu.stop_deployment_and_wait("music-minimax-music3")
+
     def test_omitted_scale_replicas_means_zero(self) -> None:
         self.assertEqual(replicas_from_scale({"spec": {}}), 0)
         self.assertEqual(replicas_from_scale({"spec": {"replicas": 1}}), 1)

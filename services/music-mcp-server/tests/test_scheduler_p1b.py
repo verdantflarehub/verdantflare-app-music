@@ -6,7 +6,7 @@ import json
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import wave
 import zipfile
 from pathlib import Path
@@ -40,6 +40,77 @@ def _make_uvr5_zip() -> bytes:
 
 
 class MusicSchedulerP1bTest(unittest.TestCase):
+    def test_release_tracks_two_heartbeats_and_retries_only_same_fence(self):
+        for conflict, changed_fence in ((False, False), (True, False), (True, True)):
+            with self.subTest(conflict=conflict, changed_fence=changed_fence), tempfile.TemporaryDirectory() as tmp:
+                lease = {"lease_id":"lease", "fencing_token":7, "pod_uid":"pod", "gpu_uuids":["gpu"], "version":2}
+                scheduler = Mock(enabled=True, ttl_seconds=90)
+                scheduler.acquire_or_wait.return_value = lease
+                scheduler.build_grant_headers.return_value = {}
+                scheduler.heartbeat.side_effect = [{**lease,"version":3},{**lease,"version":4}]
+                scheduler.get_lease.return_value = {**lease,"version":5,"fencing_token":8 if changed_fence else 7}
+                versions = []
+                def release(*args, **kwargs):
+                    version = kwargs["expected_version"]
+                    versions.append(version)
+                    if version < 4 or (conflict and len(versions) == 1):
+                        raise SchedulerError("LEASE_VERSION_CONFLICT", status_code=409)
+                    return {"lease_id":"lease","state":"released"}
+                scheduler.release.side_effect = release
+                class Ticks:
+                    def __init__(self): self.count = 0
+                    def wait(self, interval):
+                        self.count += 1
+                        return self.count > 2
+                    def is_set(self): return False
+                    def set(self): pass
+                class InlineThread:
+                    def __init__(self, *, target, **kwargs): self.target = target
+                    def start(self): self.target()
+                    def join(self, **kwargs): pass
+                gpu = GpuCoordinator(MemoryApi(), "", "", enabled=False)
+                gpu.api.scales["music-minimax-music3"] = 1
+                gpu.stop_deployment_and_wait = Mock()
+                with httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200,json={
+                    "runtime_identity":{"pod_uid":"pod"},
+                    "reclaim_proof":{"reclaimed":True,"active_tasks":0,"proof_source":"receiver_guard","token_sealed":True},
+                }))) as client:
+                    executor = MusicExecutor(ArtifactStore(Path(tmp)),ServiceURLs("m","u","r","l","a"),client=client,gpu=gpu,scheduler=scheduler)
+                    with patch("verdantflare_music_mcp.executor.threading.Event", Ticks), patch("verdantflare_music_mcp.executor.threading.Thread", InlineThread):
+                        with executor._hold_consumer_gpu("music3", "http://worker"):
+                            pass
+                self.assertEqual(scheduler.heartbeat.call_count, 2)
+                self.assertEqual(versions, [4,5] if conflict and not changed_fence else [4])
+                self.assertEqual(scheduler.get_lease.call_count, int(conflict))
+
+    def test_all_consumers_shutdown_before_release_and_never_settle_on_timeout(self):
+        for consumer in ("music3", "uvr5", "rvc", "ace-step"):
+            for stop_error in (None, RuntimeError("still terminating")):
+                with self.subTest(consumer=consumer, stop_error=stop_error), tempfile.TemporaryDirectory() as tmp:
+                    events = []
+                    lease = {"lease_id":"lease", "fencing_token":1, "pod_uid":"pod", "gpu_uuids":["gpu"], "version":1}
+                    scheduler = Mock(enabled=True, ttl_seconds=90)
+                    scheduler.acquire_or_wait.return_value = lease
+                    scheduler.build_grant_headers.return_value = {}
+                    scheduler.release.side_effect = lambda *a,**kw: events.append(("release",kw["worker_settled"]))
+                    gpu = GpuCoordinator(MemoryApi(),"", "", enabled=False)
+                    gpu.api.scales.update({"music-minimax-music3":1,"music-uvr5":1,"music-rvc":1,"music-ace-step":1})
+                    def stop(name):
+                        events.append(("stop",name))
+                        if stop_error:
+                            raise stop_error
+                    gpu.stop_deployment_and_wait = stop
+                    client = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200,json={
+                        "runtime_identity":{"pod_uid":"pod"},
+                        "reclaim_proof":{"reclaimed":True,"active_tasks":0,"proof_source":"receiver_guard","token_sealed":True},
+                    })))
+                    with client:
+                        executor = MusicExecutor(ArtifactStore(Path(tmp)),ServiceURLs("m","u","r","l","a"),client=client,gpu=gpu,scheduler=scheduler)
+                        with executor._hold_consumer_gpu(consumer,"http://worker"):
+                            events.append(("work",consumer))
+                    self.assertEqual([e[0] for e in events],["work","stop","release"])
+                    self.assertEqual(events[-1][1],stop_error is None)
+
     def test_music3_two_card_acquire_bind_target_and_dual_track_release_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ArtifactStore(Path(tmp))
@@ -183,7 +254,7 @@ class MusicSchedulerP1bTest(unittest.TestCase):
             acq = next(b for p, b in sched_bodies if p.endswith("/acquire"))
             self.assertEqual(acq["consumer_kind"], "music3")
             self.assertEqual(acq["card_count"], 2)
-            self.assertEqual(acq["peak_budget_mib"], 16384)
+            self.assertEqual(acq["peak_budget_mib"], 29696)
             self.assertEqual(acq["k8s_slots_required"], 2)
             self.assertEqual(downstream_headers[0]["x-vf-gpu-lease-id"], "lease-music3-1")
             self.assertEqual(downstream_headers[0]["x-vf-gpu-pod-uid"], "pod-music3-1")
@@ -194,8 +265,9 @@ class MusicSchedulerP1bTest(unittest.TestCase):
             self.assertEqual(events, ["sched_acquire", "sched_bind_target", "legacy_release", "sched_release"])
             rel = next(b for p, b in sched_bodies if p.endswith("/release"))
             self.assertTrue(rel["worker_settled"])
-            self.assertEqual(rel["reclaim_mode"], "warm_idle_settled")
-            self.assertEqual(rel["reclaim_proof"]["proof_source"], "receiver_guard")
+            self.assertNotIn("reclaim_mode", rel)
+            self.assertNotIn("reclaim_proof", rel)
+            self.assertEqual(api.get_scale("music-minimax-music3"), 0)
 
     def test_uvr5_rvc_and_ace_step_acquire_slices_and_never_fabricate_missing_proof(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -251,6 +323,11 @@ class MusicSchedulerP1bTest(unittest.TestCase):
             def svc_handler(request: httpx.Request) -> httpx.Response:
                 host = request.url.host
                 path = request.url.path
+                if host in {"uvr5", "acestep"} and path == "/internal/v1/gpu-guard/reclaim":
+                    return httpx.Response(200, json={"reclaim_proof": {
+                        "reclaimed": True, "active_tasks": 0,
+                        "proof_source": "receiver_guard", "token_sealed": True,
+                    }})
                 if path == "/health":
                     return httpx.Response(
                         200,
@@ -337,6 +414,7 @@ class MusicSchedulerP1bTest(unittest.TestCase):
                     music_editor="http://acestep",
                 ),
                 client=httpx.Client(transport=httpx.MockTransport(svc_handler)),
+                gpu=GpuCoordinator(api=MemoryApi(), role="", holder="", enabled=False),
                 scheduler=sched,
             )
 

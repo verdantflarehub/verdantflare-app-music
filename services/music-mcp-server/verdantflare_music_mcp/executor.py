@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import audioop
+import logging
 import contextlib
 import hashlib
 import io
@@ -54,6 +55,8 @@ AUDIO_MEDIA_TYPES = {
     ".wav": "audio/wav",
 }
 MAX_VOICE_PREPARATION_BYTES = 300 * 1024 * 1024
+# One lifecycle per on-demand Deployment, including admission and shutdown.
+_CONSUMER_LIFECYCLE_LOCKS = {key: threading.RLock() for key in SCHEDULER_CONSUMER_SPECS}
 VOICE_SEGMENT_PATTERN = re.compile(r"\d{2}-\d{3}\.wav")
 LRC_LINE_PATTERN = re.compile(r"^\[(\d{1,3}):(\d{2})\.(\d{3})\](.+)$")
 
@@ -572,6 +575,14 @@ class MusicExecutor:
 
     @contextlib.contextmanager
     def _hold_consumer_gpu(
+        self, consumer_key: str, service_url: str | None, **kwargs,
+    ):
+        with _CONSUMER_LIFECYCLE_LOCKS[consumer_key]:
+            with self._hold_consumer_gpu_serial(consumer_key, service_url, **kwargs) as grant:
+                yield grant
+
+    @contextlib.contextmanager
+    def _hold_consumer_gpu_serial(
         self,
         consumer_key: str,
         service_url: str | None,
@@ -627,6 +638,8 @@ class MusicExecutor:
 
         lease_id = str(lease_doc["lease_id"])
         fencing_token = int(lease_doc.get("fencing_token") or 0)
+        version_lock = threading.Lock()
+        latest_version = int(lease_doc.get("version") or 0)
         legacy_held = False
         stop_hb = threading.Event()
         hb_thread: threading.Thread | None = None
@@ -661,12 +674,20 @@ class MusicExecutor:
                 except Exception as exc:
                     raise ExecutionError("waiting_gpu_lease") from exc
 
+            latest_version = max(latest_version, int(lease_doc.get("version") or 0))
             interval = max(5, self.scheduler.ttl_seconds // 3)
 
             def _hb_loop() -> None:
+                nonlocal latest_version
                 while not stop_hb.wait(interval):
-                    with contextlib.suppress(Exception):
-                        self.scheduler.heartbeat(lease_id, fencing_token)
+                    with version_lock:
+                        if stop_hb.is_set():
+                            return
+                        try:
+                            heartbeat = self.scheduler.heartbeat(lease_id, fencing_token)
+                            latest_version = max(latest_version, int(heartbeat.get("version") or 0))
+                        except Exception:
+                            logging.getLogger(__name__).warning("GPU lease heartbeat failed: %s", lease_id)
                     if legacy_held:
                         with contextlib.suppress(Exception):
                             self.gpu.renew()
@@ -683,13 +704,11 @@ class MusicExecutor:
             )
             yield grant_headers, record_proof
         finally:
-            stop_hb.set()
-            if legacy_held:
-                with contextlib.suppress(Exception):
-                    self.gpu.release()
             target_bound = bool(lease_doc.get("pod_uid"))
             proof = recorded["proof"]
-            if proof is None and target_bound and service_url:
+            if target_bound and service_url:
+                # Re-observe active work at shutdown; a response proof may be stale.
+                proof = None
                 reclaim_headers = dict(probe_headers or {})
                 if "Authorization" not in reclaim_headers and "authorization" not in reclaim_headers:
                     rt_tok = (
@@ -722,24 +741,50 @@ class MusicExecutor:
                 worker_settled = False
                 send_proof = None
             elif valid_proof:
-                reclaim_mode = "warm_idle_settled"
-                worker_settled = True
-                send_proof = proof
+                # A sealed request is not proof that resident CUDA processes exited.
+                # Keep heartbeating until the original Pod has disappeared.
+                worker_settled = False
+                with contextlib.suppress(Exception):
+                    self.gpu.stop_deployment_and_wait(deployment)
+                    worker_settled = True
+                reclaim_mode = ""
+                send_proof = None
             else:
                 reclaim_mode = ""
                 worker_settled = False
                 send_proof = None
 
-            with contextlib.suppress(Exception):
-                self.scheduler.release(
-                    lease_id,
-                    fencing_token,
+            stop_hb.set()
+            if hb_thread is not None:
+                hb_thread.join(timeout=2)
+            if legacy_held:
+                with contextlib.suppress(Exception):
+                    self.gpu.release()
+            # Exclude an in-flight heartbeat even when the bounded join timed out.
+            with version_lock:
+                release_args = dict(
                     worker_settled=worker_settled,
                     reclaim_mode=reclaim_mode,
                     reclaim_proof=send_proof,
                     target_identity=target_identity if target_bound else None,
-                    expected_version=int(lease_doc.get("version") or 0),
                 )
+                try:
+                    try:
+                        self.scheduler.release(lease_id, fencing_token,
+                                               expected_version=latest_version, **release_args)
+                    except SchedulerError as exc:
+                        if exc.status_code != 409 or exc.code != "LEASE_VERSION_CONFLICT":
+                            raise
+                        logging.getLogger(__name__).warning("GPU lease release version conflict: %s; refreshing", lease_id)
+                        current = self.scheduler.get_lease(lease_id)
+                        if (current.get("lease_id") != lease_id
+                                or int(current.get("fencing_token") or 0) != fencing_token):
+                            raise ExecutionError("gpu_release_fence_changed") from exc
+                        latest_version = max(latest_version, int(current.get("version") or 0))
+                        self.scheduler.release(lease_id, fencing_token,
+                                               expected_version=latest_version, **release_args)
+                except Exception:
+                    logging.getLogger(__name__).exception("GPU lease release failed: %s", lease_id)
 
     def _music_editor_headers(self) -> dict[str, str]:
         token = self.service_urls.music_editor_bearer_token

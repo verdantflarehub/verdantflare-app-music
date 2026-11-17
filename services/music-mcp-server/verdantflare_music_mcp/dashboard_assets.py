@@ -47,6 +47,7 @@ def build(source: Path | str, output: Path | str, version: str = __version__) ->
     code = (source_path / "dashboard.mjs").read_text(encoding="utf-8").replace("\r\n", "\n")
     entry = asset("dashboard.mjs", code.encode("utf-8"))
     html = (source_path / "index.html").read_text(encoding="utf-8").replace("\r\n", "\n")
+    html = re.sub(r"Music MCP · v\d+\.\d+\.\d+", f"Music MCP · v{version}", html)
     if html.count("./dashboard.css") != 1 or html.count("./dashboard.mjs") != 1:
         raise ValueError("INVALID_DASHBOARD_ENTRY")
     files["index.html"] = (
