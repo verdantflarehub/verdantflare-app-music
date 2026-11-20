@@ -643,7 +643,32 @@ class MusicExecutor:
         legacy_held = False
         stop_hb = threading.Event()
         hb_thread: threading.Thread | None = None
+        heartbeat_failed = False
+        interval = max(5, self.scheduler.ttl_seconds // 3)
+
+        def _hb_loop() -> None:
+            nonlocal latest_version, heartbeat_failed
+            while not stop_hb.wait(interval):
+                with version_lock:
+                    if stop_hb.is_set():
+                        return
+                    try:
+                        heartbeat = self.scheduler.heartbeat(lease_id, fencing_token)
+                        latest_version = max(latest_version, int(heartbeat.get("version") or 0))
+                    except Exception:
+                        # An uncertain/revoked lease must never admit new work,
+                        # even if a later heartbeat succeeds during cleanup.
+                        heartbeat_failed = True
+                        logging.getLogger(__name__).warning("GPU lease heartbeat failed: %s", lease_id)
+                if legacy_held:
+                    with contextlib.suppress(Exception):
+                        self.gpu.renew()
+
         try:
+            # Cold model startup can exceed TTL. Keep the acquired lease alive
+            # throughout scaling, readiness and identity discovery, not just inference.
+            hb_thread = threading.Thread(target=_hb_loop, name=f"music-sched-hb-{consumer_key}", daemon=True)
+            hb_thread.start()
             if use_legacy_mirror and self.gpu.enabled:
                 # Canonical lock order (H7): :5056 FIRST, then non-blocking K8s Lease mirror
                 if not self.gpu.try_acquire_hold():
@@ -663,45 +688,31 @@ class MusicExecutor:
                 or (target_identity.get("pod_uid") and lease_doc.get("pod_uid") != target_identity.get("pod_uid"))
                 or not (lease_doc.get("gpu_uuids") or lease_doc.get("assigned_gpu_uuids") or lease_doc.get("gpu_uuid"))
             )
-            if need_bind and target_identity.get("pod_uid"):
-                try:
-                    lease_doc = self.scheduler.bind_target(
-                        lease_id,
-                        fencing_token,
-                        runtime_identity=target_identity,
-                        expected_version=int(lease_doc.get("version") or 0),
-                    )
-                except Exception as exc:
-                    raise ExecutionError("waiting_gpu_lease") from exc
+            with version_lock:
+                if heartbeat_failed:
+                    raise ExecutionError("gpu_lease_heartbeat_failed")
+                if need_bind and target_identity.get("pod_uid"):
+                    try:
+                        lease_doc = self.scheduler.bind_target(
+                            lease_id,
+                            fencing_token,
+                            runtime_identity=target_identity,
+                            expected_version=latest_version,
+                        )
+                    except Exception as exc:
+                        raise ExecutionError("waiting_gpu_lease") from exc
+                latest_version = max(latest_version, int(lease_doc.get("version") or 0))
 
-            latest_version = max(latest_version, int(lease_doc.get("version") or 0))
-            interval = max(5, self.scheduler.ttl_seconds // 3)
-
-            def _hb_loop() -> None:
-                nonlocal latest_version
-                while not stop_hb.wait(interval):
-                    with version_lock:
-                        if stop_hb.is_set():
-                            return
-                        try:
-                            heartbeat = self.scheduler.heartbeat(lease_id, fencing_token)
-                            latest_version = max(latest_version, int(heartbeat.get("version") or 0))
-                        except Exception:
-                            logging.getLogger(__name__).warning("GPU lease heartbeat failed: %s", lease_id)
-                    if legacy_held:
-                        with contextlib.suppress(Exception):
-                            self.gpu.renew()
-
-            hb_thread = threading.Thread(target=_hb_loop, name=f"music-sched-hb-{consumer_key}", daemon=True)
-            hb_thread.start()
-
-            grant_headers = self.scheduler.build_grant_headers(
-                lease_doc,
-                parent_task_id=task_id,
-                consumer_kind=str(spec["consumer_kind"]),
-                stage_id=resolved_stage,
-                target_identity=target_identity,
-            )
+            with version_lock:
+                if heartbeat_failed:
+                    raise ExecutionError("gpu_lease_heartbeat_failed")
+                grant_headers = self.scheduler.build_grant_headers(
+                    lease_doc,
+                    parent_task_id=task_id,
+                    consumer_kind=str(spec["consumer_kind"]),
+                    stage_id=resolved_stage,
+                    target_identity=target_identity,
+                )
             yield grant_headers, record_proof
         finally:
             target_bound = bool(lease_doc.get("pod_uid"))
